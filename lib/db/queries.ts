@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
 import { db } from "./client";
 import {
   agent_memory,
@@ -235,7 +235,7 @@ export async function getDayMacros(userId: UserId, dayStart: Date, dayEnd: Date)
       and(
         eq(meals.user_id, userId),
         gte(meals.datetime, dayStart),
-        sql`${meals.datetime} < ${dayEnd}`,
+        lt(meals.datetime, dayEnd),
       ),
     );
   return rows[0] ?? { kcal: 0, protein_g: 0, carb_g: 0, fat_g: 0 };
