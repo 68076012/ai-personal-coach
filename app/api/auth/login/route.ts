@@ -4,7 +4,7 @@ import { getSession, verifyPasscode } from "@/lib/auth";
 import type { UserId } from "@/lib/db/schema";
 
 const Body = z.object({
-  userId: z.enum(["garfield", "partner"]),
+  userId: z.enum(["garfield", "partner", "test"]),
   passcode: z.string().min(1).max(200),
 });
 

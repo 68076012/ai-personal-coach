@@ -28,5 +28,6 @@ export async function pushLineMessage(toUserId: string, text: string): Promise<{
 export function lineUserIdFor(coachUserId: string): string | null {
   if (coachUserId === "garfield") return process.env.LINE_USER_ID_GARFIELD ?? null;
   if (coachUserId === "partner") return process.env.LINE_USER_ID_PARTNER ?? null;
+  if (coachUserId === "test") return process.env.LINE_USER_ID_TEST ?? null;
   return null;
 }

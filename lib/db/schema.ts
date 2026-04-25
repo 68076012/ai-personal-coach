@@ -200,7 +200,7 @@ export type NewConversation = typeof conversations.$inferInsert;
 export type DailyLog = typeof daily_logs.$inferSelect;
 export type MorningReport = typeof morning_reports.$inferSelect;
 
-export type UserId = "garfield" | "partner";
+export type UserId = "garfield" | "partner" | "test";
 export type AgentType =
   | "orchestrator"
   | "trainer"

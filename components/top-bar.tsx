@@ -39,7 +39,9 @@ export function TopBar({
       ? "bg-orange-500 text-white"
       : accent === "teal"
         ? "bg-teal-600 text-white"
-        : "bg-primary text-primary-foreground";
+        : accent === "violet"
+          ? "bg-violet-600 text-white"
+          : "bg-primary text-primary-foreground";
 
   function logout() {
     startTransition(async () => {

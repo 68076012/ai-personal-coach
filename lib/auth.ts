@@ -44,6 +44,7 @@ export async function requireUserId(): Promise<UserId> {
 export const ALLOWED_USERS: { id: UserId; envKey: string }[] = [
   { id: "garfield", envKey: "GARFIELD_PASSCODE" },
   { id: "partner", envKey: "PARTNER_PASSCODE" },
+  { id: "test", envKey: "TEST_PASSCODE" },
 ];
 
 export function verifyPasscode(userId: UserId, passcode: string) {

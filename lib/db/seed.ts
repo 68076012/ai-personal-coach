@@ -42,6 +42,21 @@ async function main() {
         activity_level: "light",
         accent_color: "teal",
       },
+      {
+        id: "test",
+        name: "Test",
+        sex: "M",
+        age: 30,
+        height_cm: 170,
+        current_weight_kg: 70,
+        goal: "บัญชีทดสอบสำหรับลองฟีเจอร์ต่างๆ",
+        goal_kcal: 2000,
+        goal_protein_g: 120,
+        goal_carb_g: 220,
+        goal_fat_g: 65,
+        activity_level: "moderate",
+        accent_color: "violet",
+      },
     ])
     .onConflictDoUpdate({
       target: users.id,
