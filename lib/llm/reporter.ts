@@ -70,6 +70,15 @@ export async function generateMorningReport(userId: UserId): Promise<ReportResul
         .join("\n") || "(ไม่มี)"
     : "(ไม่มี)";
 
+  const workoutPaused = todayPlan?.workout_paused === true;
+  const planForPrompt = todayPlan
+    ? {
+        workout: workoutPaused ? "(หยุด workout วันนี้ตามที่ผู้ใช้ตั้งไว้ — ห้ามเตือนหรือเสนอ workout)" : todayPlan.workout_plan,
+        meals: todayPlan.meal_plan,
+        notes: todayPlan.notes,
+      }
+    : null;
+
   const userMessage = `สรุปข้อมูล 24-36 ชม.ที่ผ่านมาของ ${user.name}:
 
 มื้ออาหาร (รวม ${totals.kcal}kcal, P${Math.round(totals.protein)}/C${Math.round(totals.carb)}/F${Math.round(totals.fat)}g):
@@ -82,8 +91,8 @@ ${fmtWorkouts}
 ${fmtWeights}
 
 แผนวันนี้ (${today}):
-${todayPlan ? JSON.stringify({ workout: todayPlan.workout_plan, meals: todayPlan.meal_plan, notes: todayPlan.notes }, null, 2) : "(ไม่มี)"}
-
+${planForPrompt ? JSON.stringify(planForPrompt, null, 2) : "(ไม่มี)"}
+${workoutPaused ? "\nหมายเหตุ: ผู้ใช้กดหยุด workout วันนี้ — ในส่วน 'แผนวันนี้' ของรายงาน ให้บอกแค่เรื่องอาหาร/พักผ่อน อย่าเสนอ workout เพิ่ม\n" : ""}
 เป้าหมาย:
 - daily ${user.goal_kcal ?? "-"} kcal, P ${user.goal_protein_g ?? "-"}g
 - ${user.goal}
