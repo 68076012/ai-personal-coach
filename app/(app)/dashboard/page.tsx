@@ -84,7 +84,7 @@ export default async function DashboardHome() {
         </Card>
       )}
 
-      <TodayPlanCard plan={plan} />
+      <TodayPlanCard plan={plan} date={todayDate} />
 
       <QuickActions />
 
