@@ -42,13 +42,25 @@ function fmtRecent<T extends { datetime: Date }>(rows: T[], format: (r: T) => st
 export function commonHeader(ctx: PromptContext): string {
   const u = ctx.user;
   const macros = ctx.todayMacros;
+  const backgroundLines: string[] = [];
+  if (u.work_hours) backgroundLines.push(`- เวลาทำงาน: ${u.work_hours}`);
+  if (u.workout_window) backgroundLines.push(`- เวลาว่างออกกำลังกาย: ${u.workout_window}`);
+  if (u.budget_per_day_thb !== null && u.budget_per_day_thb !== undefined) {
+    backgroundLines.push(`- งบอาหาร/วัน: ${u.budget_per_day_thb} บาท`);
+  }
+  if (u.pantry_ingredients) backgroundLines.push(`- ของในครัว: ${u.pantry_ingredients}`);
+  if (u.dietary_notes) backgroundLines.push(`- อาหารที่แพ้/ไม่กิน/ชอบ: ${u.dietary_notes}`);
+  const backgroundBlock = backgroundLines.length
+    ? `\nบริบทผู้ใช้ (ใช้ประกอบการวางแผน):\n${backgroundLines.join("\n")}\n`
+    : "";
+
   return `คุณคือผู้ช่วย AI ใน fitness coach app สำหรับ 2 ผู้ใช้
 ผู้ใช้ปัจจุบัน: ${u.name} (id=${u.id})
 เป้าหมาย: ${u.goal}
 เป้าหมายรายวัน: ${u.goal_kcal ?? "-"} kcal, โปรตีน ${u.goal_protein_g ?? "-"}g
 ข้อมูลพื้นฐาน: เพศ ${u.sex}, อายุ ${u.age}, ส่วนสูง ${u.height_cm}cm, น้ำหนักปัจจุบัน ${u.current_weight_kg ?? "-"}kg
 Activity level: ${u.activity_level ?? "-"}
-
+${backgroundBlock}
 วันนี้: ${ctx.todayDate} (${ctx.dayOfWeek})
 รวมสิ่งที่กินไปแล้ววันนี้: ${macros.kcal} kcal, P${macros.protein_g.toFixed(0)}/C${macros.carb_g.toFixed(0)}/F${macros.fat_g.toFixed(0)}g
 
