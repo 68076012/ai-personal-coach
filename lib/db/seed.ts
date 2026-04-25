@@ -29,7 +29,7 @@ async function main() {
       },
       {
         id: "partner",
-        name: "Partner",
+        name: "Mai",
         sex: "F",
         age: 25,
         height_cm: 160,

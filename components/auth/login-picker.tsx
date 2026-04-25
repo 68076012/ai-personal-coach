@@ -9,7 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 
 const USERS = [
   { id: "garfield", label: "ฉันคือ Garfield", accent: "bg-orange-500/10 hover:bg-orange-500/20 border-orange-500/30" },
-  { id: "partner", label: "ฉันคือ Partner", accent: "bg-teal-500/10 hover:bg-teal-500/20 border-teal-500/30" },
+  { id: "partner", label: "ฉันคือ Mai", accent: "bg-teal-500/10 hover:bg-teal-500/20 border-teal-500/30" },
   { id: "test", label: "Test account", accent: "bg-violet-500/10 hover:bg-violet-500/20 border-violet-500/30" },
 ] as const;
 

@@ -4,26 +4,27 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { getSession } from "@/lib/auth";
 import { upsertDailyPlan } from "@/lib/db/queries";
+import { PlanSchema } from "@/lib/plan-types";
 import type { UserId } from "@/lib/db/schema";
 
-const PlanInput = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  workout_plan: z.unknown().optional(),
-  meal_plan: z.unknown().optional(),
-  notes: z.string().max(2000).nullable().optional(),
-});
+const SavePlanInput = z
+  .object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) })
+  .and(PlanSchema);
 
-export async function savePlan(input: z.infer<typeof PlanInput>) {
+export async function savePlan(input: z.infer<typeof SavePlanInput>) {
   const session = await getSession();
   if (!session.userId) throw new Error("unauthenticated");
-  const parsed = PlanInput.safeParse(input);
-  if (!parsed.success) throw new Error("bad_input");
+  const parsed = SavePlanInput.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues.map((i) => i.message).join("; "));
+  }
+  const { date, workout_plan, meal_plan, notes } = parsed.data;
   await upsertDailyPlan({
     user_id: session.userId as UserId,
-    date: parsed.data.date,
-    workout_plan: parsed.data.workout_plan ?? null,
-    meal_plan: parsed.data.meal_plan ?? null,
-    notes: parsed.data.notes ?? null,
+    date,
+    workout_plan: workout_plan ?? null,
+    meal_plan: meal_plan ?? null,
+    notes: notes ?? null,
   });
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/plan");
