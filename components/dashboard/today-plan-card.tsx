@@ -1,7 +1,8 @@
 import { formatDistanceToNow } from "date-fns";
 import { th } from "date-fns/locale";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dumbbell, UtensilsCrossed } from "lucide-react";
+import { Dumbbell, UtensilsCrossed, PauseCircle } from "lucide-react";
+import { PauseWorkoutToggle } from "./pause-workout-toggle";
 import type { DailyPlan } from "@/lib/db/schema";
 
 interface WorkoutItem {
@@ -27,13 +28,20 @@ const MEAL_LABELS: Record<string, string> = {
   snack: "ของว่าง",
 };
 
-export function TodayPlanCard({ plan }: { plan: DailyPlan | null }) {
+export function TodayPlanCard({
+  plan,
+  date,
+}: {
+  plan: DailyPlan | null;
+  date: string;
+}) {
   const updatedLabel = plan?.updated_at
     ? formatDistanceToNow(new Date(plan.updated_at), { addSuffix: true, locale: th })
     : null;
 
   const workouts = (plan?.workout_plan as WorkoutItem[] | null) ?? [];
   const meals = (plan?.meal_plan as MealItem[] | null) ?? [];
+  const paused = plan?.workout_paused ?? false;
 
   return (
     <Card>
@@ -45,11 +53,23 @@ export function TodayPlanCard({ plan }: { plan: DailyPlan | null }) {
       </CardHeader>
       <CardContent className="space-y-4">
         <section>
-          <div className="mb-2 flex items-center gap-1.5 text-sm font-medium">
-            <Dumbbell className="size-4 text-orange-500" />
-            ออกกำลังกาย
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 text-sm font-medium">
+              <Dumbbell className="size-4 text-orange-500" />
+              ออกกำลังกาย
+              {paused && (
+                <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">
+                  <PauseCircle className="size-3" /> หยุดวันนี้
+                </span>
+              )}
+            </div>
+            <PauseWorkoutToggle date={date} paused={paused} />
           </div>
-          {workouts.length === 0 ? (
+          {paused ? (
+            <p className="text-sm text-muted-foreground">
+              พักวันนี้นะ — โค้ชจะไม่เตือนเรื่อง workout และจะข้ามรอบ cron ของวันนี้ให้
+            </p>
+          ) : workouts.length === 0 ? (
             <p className="text-sm text-muted-foreground">ยังไม่มีแผน — บอกโค้ชให้ช่วยวางได้</p>
           ) : (
             <ul className="space-y-1 text-sm">

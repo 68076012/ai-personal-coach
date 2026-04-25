@@ -4,6 +4,7 @@ import { formatInTimeZone } from "date-fns-tz";
 import { verifyCronAuth } from "@/lib/cron-auth";
 import { runAgent, TZ } from "@/lib/llm/runtime";
 import { MEAL_DESIGNER_PROMPT, TRAINER_PROMPT } from "@/lib/llm/prompts";
+import { getDailyPlan } from "@/lib/db/queries";
 import type { UserId } from "@/lib/db/schema";
 
 export const runtime = "nodejs";
@@ -22,6 +23,9 @@ export async function GET(req: Request) {
 
   const results = await Promise.allSettled(
     USERS.map(async (userId) => {
+      const tomorrowPlan = await getDailyPlan(userId, tomorrow).catch(() => null);
+      const workoutPaused = tomorrowPlan?.workout_paused === true;
+
       const meals = await runAgent({
         userId,
         agent: "meal_designer",
@@ -30,19 +34,26 @@ export async function GET(req: Request) {
         task: "plan",
         persistConversation: false,
       });
-      const workout = await runAgent({
-        userId,
-        agent: "trainer",
-        userMessage: `ออกแบบ workout สำหรับพรุ่งนี้ (${tomorrow}, ${tomorrowDow}) ตาม progressive overload. เรียก update_plan โดยใส่ workout_plan ของวัน ${tomorrow}`,
-        systemSuffix: TRAINER_PROMPT,
-        task: "plan",
-        estimatedComplexity: "medium",
-        persistConversation: false,
-      });
+
+      let workoutToolCount = 0;
+      if (!workoutPaused) {
+        const workout = await runAgent({
+          userId,
+          agent: "trainer",
+          userMessage: `ออกแบบ workout สำหรับพรุ่งนี้ (${tomorrow}, ${tomorrowDow}) ตาม progressive overload. เรียก update_plan โดยใส่ workout_plan ของวัน ${tomorrow}`,
+          systemSuffix: TRAINER_PROMPT,
+          task: "plan",
+          estimatedComplexity: "medium",
+          persistConversation: false,
+        });
+        workoutToolCount = workout.toolEvents.length;
+      }
+
       return {
         userId,
         meals_tools: meals.toolEvents.length,
-        workout_tools: workout.toolEvents.length,
+        workout_tools: workoutToolCount,
+        workout_paused: workoutPaused,
       };
     }),
   );

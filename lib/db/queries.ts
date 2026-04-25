@@ -113,6 +113,40 @@ export async function upsertDailyPlan(row: NewDailyPlan) {
   return p;
 }
 
+export async function setWorkoutPaused(
+  userId: UserId,
+  date: string,
+  paused: boolean,
+) {
+  const [p] = await db
+    .insert(daily_plans)
+    .values({ user_id: userId, date, workout_paused: paused })
+    .onConflictDoUpdate({
+      target: [daily_plans.user_id, daily_plans.date],
+      set: { workout_paused: paused, updated_at: new Date() },
+    })
+    .returning();
+  return p;
+}
+
+export async function getDailyPlansBetween(
+  userId: UserId,
+  startDate: string,
+  endDate: string,
+) {
+  return db
+    .select()
+    .from(daily_plans)
+    .where(
+      and(
+        eq(daily_plans.user_id, userId),
+        gte(daily_plans.date, startDate),
+        lt(daily_plans.date, endDate),
+      ),
+    )
+    .orderBy(daily_plans.date);
+}
+
 // ===== Agent memory =====
 export async function upsertAgentMemory(row: NewAgentMemory) {
   const [m] = await db

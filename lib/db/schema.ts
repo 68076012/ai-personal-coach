@@ -7,6 +7,7 @@ import {
   real,
   jsonb,
   date,
+  boolean,
   index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
@@ -25,6 +26,12 @@ export const users = pgTable("users", {
   goal_fat_g: integer("goal_fat_g"),
   activity_level: text("activity_level"),
   accent_color: text("accent_color"),
+  // Background context — used by agents to tailor plans
+  work_hours: text("work_hours"), // e.g. "9-18, จันทร์-ศุกร์"
+  workout_window: text("workout_window"), // e.g. "เย็น 18:30-19:30, ยกเว้นพุธ"
+  budget_per_day_thb: integer("budget_per_day_thb"),
+  pantry_ingredients: text("pantry_ingredients"), // free text or comma-separated
+  dietary_notes: text("dietary_notes"), // allergies, preferences
   created_at: timestamp("created_at").defaultNow().notNull(),
   updated_at: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -145,6 +152,7 @@ export const daily_plans = pgTable(
     workout_plan: jsonb("workout_plan"),
     meal_plan: jsonb("meal_plan"),
     notes: text("notes"),
+    workout_paused: boolean("workout_paused").default(false).notNull(),
     generated_at: timestamp("generated_at").defaultNow().notNull(),
     updated_at: timestamp("updated_at").defaultNow().notNull(),
   },

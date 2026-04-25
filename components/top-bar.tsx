@@ -1,9 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useTransition } from "react";
-import { Settings, LogOut, MessageSquare, BarChart3, CalendarDays, Home } from "lucide-react";
+import { useRouter, usePathname } from "next/navigation";
+import { useState, useTransition } from "react";
+import {
+  Settings,
+  LogOut,
+  MessageSquare,
+  BarChart3,
+  CalendarDays,
+  Home,
+  Menu,
+} from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,6 +19,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 
@@ -31,7 +46,9 @@ export function TopBar({
   accent: string | null;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [pending, startTransition] = useTransition();
+  const [navOpen, setNavOpen] = useState(false);
   const initial = userName.charAt(0).toUpperCase();
 
   const accentClass =
@@ -53,9 +70,71 @@ export function TopBar({
 
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b bg-background/80 px-4 py-3 backdrop-blur">
-      <Link href="/dashboard" className="text-lg font-semibold tracking-tight">
-        Coach
-      </Link>
+      <div className="flex items-center gap-2">
+        <Sheet open={navOpen} onOpenChange={setNavOpen}>
+          <SheetTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="sm:hidden"
+              aria-label="เปิดเมนู"
+            >
+              <Menu className="size-5" />
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="left" className="w-72 p-0">
+            <SheetHeader className="border-b">
+              <SheetTitle>เมนู</SheetTitle>
+            </SheetHeader>
+            <nav className="flex flex-col gap-1 p-2">
+              {NAV.map((n) => {
+                const active =
+                  n.href === "/dashboard"
+                    ? pathname === "/dashboard"
+                    : pathname?.startsWith(n.href);
+                return (
+                  <Link
+                    key={n.href}
+                    href={n.href}
+                    onClick={() => setNavOpen(false)}
+                    className={`flex items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-colors ${
+                      active
+                        ? "bg-muted font-medium"
+                        : "hover:bg-muted/60"
+                    }`}
+                  >
+                    <n.icon className="size-4" />
+                    {n.label}
+                  </Link>
+                );
+              })}
+              <div className="my-1 border-t" />
+              <Link
+                href="/dashboard/settings"
+                onClick={() => setNavOpen(false)}
+                className="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm hover:bg-muted/60"
+              >
+                <Settings className="size-4" />
+                ตั้งค่า
+              </Link>
+              <button
+                onClick={() => {
+                  setNavOpen(false);
+                  logout();
+                }}
+                disabled={pending}
+                className="flex items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm hover:bg-muted/60 disabled:opacity-50"
+              >
+                <LogOut className="size-4" />
+                ออกจากระบบ
+              </button>
+            </nav>
+          </SheetContent>
+        </Sheet>
+        <Link href="/dashboard" className="text-lg font-semibold tracking-tight">
+          Coach
+        </Link>
+      </div>
       <nav className="hidden items-center gap-1 sm:flex">
         {NAV.map((n) => (
           <Button

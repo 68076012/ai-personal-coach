@@ -41,16 +41,12 @@ export async function requireUserId(): Promise<UserId> {
   return session.userId;
 }
 
-export const ALLOWED_USERS: { id: UserId; envKey: string }[] = [
-  { id: "garfield", envKey: "GARFIELD_PASSCODE" },
-  { id: "partner", envKey: "PARTNER_PASSCODE" },
-  { id: "test", envKey: "TEST_PASSCODE" },
+export const ALLOWED_USERS: { id: UserId }[] = [
+  { id: "garfield" },
+  { id: "partner" },
+  { id: "test" },
 ];
 
-export function verifyPasscode(userId: UserId, passcode: string) {
-  const entry = ALLOWED_USERS.find((u) => u.id === userId);
-  if (!entry) return false;
-  const expected = process.env[entry.envKey];
-  if (!expected) return false;
-  return passcode === expected;
+export function isAllowedUser(userId: string): userId is UserId {
+  return ALLOWED_USERS.some((u) => u.id === userId);
 }
