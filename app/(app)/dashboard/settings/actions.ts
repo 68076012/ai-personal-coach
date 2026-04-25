@@ -16,6 +16,11 @@ const GoalInput = z.object({
   current_weight_kg: z.number().positive().max(400).nullable(),
   age: z.number().int().positive().max(120),
   height_cm: z.number().positive().max(250),
+  work_hours: z.string().max(300).nullable(),
+  workout_window: z.string().max(300).nullable(),
+  budget_per_day_thb: z.number().int().nonnegative().max(100000).nullable(),
+  pantry_ingredients: z.string().max(2000).nullable(),
+  dietary_notes: z.string().max(1000).nullable(),
 });
 
 export type GoalFormValues = z.infer<typeof GoalInput>;
