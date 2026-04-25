@@ -1,36 +1,67 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AI Personal Fitness Coach
 
-## Getting Started
+Web-based multi-agent AI fitness coach for 2 hardcoded users. Built per `PLAN.md`.
 
-First, run the development server:
+- **Stack**: Next.js 16 (App Router) · TypeScript · Tailwind v4 · shadcn/ui (Radix Nova) · Drizzle · Postgres (Supabase) · Gemini 2.5 (`@google/genai`) · iron-session · Recharts.
+- **Cost target**: $0/mo using Vercel Hobby + Supabase free + Gemini free tier with smart routing + fallback chain.
+
+## Quick start
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
+cp .env.local.example .env.local
+# fill in DATABASE_URL, AUTH_SECRET (>= 32 chars), GARFIELD_PASSCODE, PARTNER_PASSCODE,
+# CRON_SECRET, GOOGLE_API_KEY (from aistudio.google.com)
+pnpm db:push        # apply schema to Supabase
+pnpm db:seed        # seed Garfield + Partner placeholders
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000 → pick user → enter passcode → dashboard.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Scripts
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Script | Purpose |
+|---|---|
+| `pnpm dev` | Next.js dev server (Turbopack) |
+| `pnpm build` | Production build |
+| `pnpm typecheck` | `tsc --noEmit` |
+| `pnpm db:generate` | Generate SQL migration from `lib/db/schema.ts` |
+| `pnpm db:push` | Apply schema directly to the DB (dev) |
+| `pnpm db:studio` | Drizzle Studio web UI |
+| `pnpm db:seed` | Insert/update the two seed users |
 
-## Learn More
+## Architecture
 
-To learn more about Next.js, take a look at the following resources:
+- `lib/db/` — Drizzle schema, client, queries, seed
+- `lib/llm/` — Gemini client (with Pro→Flash→Flash-Lite fallback), tool runtime, agent orchestration, prompts
+  - `client.ts` — `callGemini()` with daily caps, fallback, telemetry to `llm_calls`
+  - `tools.ts` — function declarations + handlers (log_meal, log_workout, update_plan, update_memory, get_history, get_plan, propose_meals)
+  - `runtime.ts` — `runAgent()` builds prompt context, runs tool-call loop, persists conversation
+  - `orchestrator.ts` — regex fast-path then Flash-Lite intent router
+  - `reporter.ts` — morning report (Pro)
+  - `prompts.ts` — common header + per-agent system prompts (Thai)
+- `lib/auth.ts` — iron-session helper
+- `proxy.ts` — Next 16 proxy (formerly middleware) — protects `/dashboard/*`
+- `app/(app)/dashboard/` — protected pages (today, chat, plan, progress, settings, admin)
+- `app/api/chat` — main chat endpoint; routes via orchestrator
+- `app/api/cron/morning-report` — 07:00 ICT, Reporter agent
+- `app/api/cron/nightly-plan` — 21:00 ICT, Meal Designer + Trainer plan tomorrow
+- `vercel.json` — cron schedule
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Deploy to Vercel
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+gh repo create ai-personal-coach --private --source=. --push
+pnpm i -g vercel && vercel link
+# Set env vars (DATABASE_URL, GOOGLE_API_KEY, AUTH_SECRET, *_PASSCODE, CRON_SECRET, etc.)
+vercel env add DATABASE_URL production
+# … repeat for each
+vercel --prod
+```
 
-## Deploy on Vercel
+Vercel cron will call `/api/cron/*` with `Authorization: Bearer ${CRON_SECRET}`.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Notification
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+LINE Notify was deprecated 2025-03-31. The app supports the LINE Messaging API instead — see `lib/line.ts` and the `LINE_*` env vars. Skip if you don't want notifications; cron still writes to `morning_reports` and the dashboard surfaces it.

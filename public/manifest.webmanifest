@@ -1,0 +1,17 @@
+{
+  "name": "Coach — AI Personal Fitness",
+  "short_name": "Coach",
+  "description": "เทรนเนอร์ส่วนตัวและนักโภชนาการ AI",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#0a0a0a",
+  "lang": "th",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "32x32",
+      "type": "image/x-icon"
+    }
+  ]
+}

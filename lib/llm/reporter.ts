@@ -1,0 +1,114 @@
+import { formatInTimeZone } from "date-fns-tz";
+import {
+  getDailyPlan,
+  getMealsSince,
+  getMorningReport,
+  getRecentDailyLogs,
+  getUser,
+  getWorkoutsSince,
+  upsertMorningReport,
+} from "@/lib/db/queries";
+import type { UserId } from "@/lib/db/schema";
+import { callGemini } from "./client";
+import { TZ } from "./runtime";
+import { REPORTER_PROMPT } from "./prompts";
+
+export interface ReportResult {
+  userId: UserId;
+  date: string;
+  summary: string;
+}
+
+export async function generateMorningReport(userId: UserId): Promise<ReportResult> {
+  const user = await getUser(userId);
+  if (!user) throw new Error(`unknown user: ${userId}`);
+
+  const now = new Date();
+  const today = formatInTimeZone(now, TZ, "yyyy-MM-dd");
+  const yesterdayStart = new Date(now.getTime() - 36 * 60 * 60 * 1000);
+
+  const [meals, workouts, weights, todayPlan] = await Promise.all([
+    getMealsSince(userId, yesterdayStart),
+    getWorkoutsSince(userId, yesterdayStart),
+    getRecentDailyLogs(userId, 7),
+    getDailyPlan(userId, today),
+  ]);
+
+  const totals = meals.reduce(
+    (a, m) => ({
+      kcal: a.kcal + m.kcal,
+      protein: a.protein + m.protein_g,
+      carb: a.carb + m.carb_g,
+      fat: a.fat + m.fat_g,
+    }),
+    { kcal: 0, protein: 0, carb: 0, fat: 0 },
+  );
+
+  const fmtMeals = meals.length
+    ? meals
+        .map(
+          (m) =>
+            `- ${formatInTimeZone(m.datetime, TZ, "MM-dd HH:mm")} ${m.meal_type} ${m.food_name} ${m.kcal}kcal P${Math.round(m.protein_g)}g`,
+        )
+        .join("\n")
+    : "(ไม่มี)";
+
+  const fmtWorkouts = workouts.length
+    ? workouts
+        .map(
+          (w) =>
+            `- ${formatInTimeZone(w.datetime, TZ, "MM-dd HH:mm")} ${w.exercise} ${w.sets ?? "?"}x${w.reps ?? "?"}${w.weight_kg ? ` @${w.weight_kg}kg` : ""}${w.duration_min ? ` ${w.duration_min}min` : ""}`,
+        )
+        .join("\n")
+    : "(ไม่มี)";
+
+  const fmtWeights = weights.length
+    ? weights
+        .filter((w) => w.weight_kg !== null)
+        .slice(0, 7)
+        .map((w) => `- ${w.date}: ${w.weight_kg}kg`)
+        .join("\n") || "(ไม่มี)"
+    : "(ไม่มี)";
+
+  const userMessage = `สรุปข้อมูล 24-36 ชม.ที่ผ่านมาของ ${user.name}:
+
+มื้ออาหาร (รวม ${totals.kcal}kcal, P${Math.round(totals.protein)}/C${Math.round(totals.carb)}/F${Math.round(totals.fat)}g):
+${fmtMeals}
+
+ออกกำลังกาย:
+${fmtWorkouts}
+
+น้ำหนักล่าสุด (7 วัน):
+${fmtWeights}
+
+แผนวันนี้ (${today}):
+${todayPlan ? JSON.stringify({ workout: todayPlan.workout_plan, meals: todayPlan.meal_plan, notes: todayPlan.notes }, null, 2) : "(ไม่มี)"}
+
+เป้าหมาย:
+- daily ${user.goal_kcal ?? "-"} kcal, P ${user.goal_protein_g ?? "-"}g
+- ${user.goal}
+
+สรุปและตั้งคำถามเช้านี้ให้หน่อย`;
+
+  const res = await callGemini({
+    tier: "pro",
+    systemInstruction: REPORTER_PROMPT,
+    contents: [{ role: "user", parts: [{ text: userMessage }] }],
+    agent: "reporter",
+    userId,
+  });
+
+  const summary = (res.text ?? "").trim() || "(ไม่มีสรุป)";
+
+  await upsertMorningReport(userId, today, summary, null);
+
+  return { userId, date: today, summary };
+}
+
+export async function getOrGenerateMorningReport(userId: UserId) {
+  const today = formatInTimeZone(new Date(), TZ, "yyyy-MM-dd");
+  const existing = await getMorningReport(userId, today).catch(() => null);
+  if (existing) return existing;
+  const generated = await generateMorningReport(userId);
+  return getMorningReport(userId, generated.date);
+}
