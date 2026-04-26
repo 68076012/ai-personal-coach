@@ -20,9 +20,10 @@ interface Props {
   layout: "week" | "month";
   selectedDate?: string;
   bulkPrompt: string;
+  goalKcal?: number | null;
 }
 
-export function PlanRangeView({ days, layout, selectedDate, bulkPrompt }: Props) {
+export function PlanRangeView({ days, layout, selectedDate, bulkPrompt, goalKcal }: Props) {
   const cardClass =
     layout === "month"
       ? "grid grid-cols-7 gap-1.5"
@@ -59,6 +60,7 @@ export function PlanRangeView({ days, layout, selectedDate, bulkPrompt }: Props)
             day={d}
             compact={layout === "month"}
             selected={selectedDate === d.date}
+            goalKcal={goalKcal}
           />
         ))}
       </div>
@@ -70,15 +72,27 @@ function DayCell({
   day,
   compact,
   selected,
+  goalKcal,
 }: {
   day: DayItem;
   compact: boolean;
   selected: boolean;
+  goalKcal?: number | null;
 }) {
   const meals = asMealArray(day.plan?.meal_plan);
   const workouts = asWorkoutArray(day.plan?.workout_plan);
   const paused = day.plan?.workout_paused ?? false;
   const empty = meals.length === 0 && workouts.length === 0 && !paused;
+  const planKcal = meals.reduce((s, m) => s + (m.kcal ?? 0), 0);
+  const kcalDelta = goalKcal && planKcal > 0 ? planKcal - goalKcal : null;
+  const kcalTone =
+    kcalDelta === null
+      ? "text-muted-foreground"
+      : Math.abs(kcalDelta) <= (goalKcal ?? 0) * 0.1
+        ? "text-emerald-600 dark:text-emerald-400"
+        : kcalDelta > 0
+          ? "text-rose-600 dark:text-rose-400"
+          : "text-amber-600 dark:text-amber-400";
 
   if (compact) {
     return (
@@ -112,6 +126,11 @@ function DayCell({
             </span>
           )}
         </div>
+        {planKcal > 0 && (
+          <div className={`mt-0.5 text-[9px] tabular-nums ${kcalTone}`}>
+            {planKcal} kcal
+          </div>
+        )}
       </Link>
     );
   }
@@ -167,6 +186,19 @@ function DayCell({
             </div>
           ) : (
             <div className="text-muted-foreground/60">— ยังไม่มีเมนู</div>
+          )}
+          {planKcal > 0 && (
+            <div className={`tabular-nums text-[11px] ${kcalTone}`}>
+              ~{planKcal} kcal
+              {goalKcal && (
+                <span className="text-muted-foreground">
+                  {" "}/ {goalKcal} เป้า
+                  {kcalDelta !== null && (
+                    <> · {kcalDelta > 0 ? "+" : ""}{kcalDelta}</>
+                  )}
+                </span>
+              )}
+            </div>
           )}
         </div>
 

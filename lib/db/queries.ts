@@ -1,12 +1,14 @@
-import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, ilike, lt, or, sql } from "drizzle-orm";
 import { db } from "./client";
 import {
   agent_memory,
   conversations,
   daily_logs,
   daily_plans,
+  meal_library,
   meals,
   morning_reports,
+  pending_plans,
   users,
   workouts,
   type AgentType,
@@ -15,7 +17,10 @@ import {
   type NewConversation,
   type NewDailyPlan,
   type NewMeal,
+  type NewMealLibraryEntry,
+  type NewPendingPlan,
   type NewWorkout,
+  type PendingPlanDay,
   type UserId,
 } from "./schema";
 
@@ -182,6 +187,20 @@ export async function getAgentMemory(
     .limit(limit);
 }
 
+export async function getMonthlyGoals(userId: UserId, monthYYYYMM: string) {
+  const prefix = `goal_month_${monthYYYYMM}_%`;
+  return db
+    .select()
+    .from(agent_memory)
+    .where(
+      and(
+        eq(agent_memory.user_id, userId),
+        ilike(agent_memory.key, prefix),
+      ),
+    )
+    .orderBy(desc(agent_memory.updated_at));
+}
+
 // ===== Conversations =====
 export async function appendConversation(row: NewConversation) {
   const [c] = await db.insert(conversations).values(row).returning();
@@ -273,6 +292,268 @@ export async function getDayMacros(userId: UserId, dayStart: Date, dayEnd: Date)
       ),
     );
   return rows[0] ?? { kcal: 0, protein_g: 0, carb_g: 0, fat_g: 0 };
+}
+
+// ===== History summaries (pre-aggregated, for LLM context efficiency) =====
+
+// Day expression: interpret meal/workout timestamp as UTC, convert to Bangkok wall-clock, take date.
+const bkkDayMeals = sql<string>`(((${meals.datetime}) AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date`;
+const bkkDayWorkouts = sql<string>`(((${workouts.datetime}) AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date`;
+
+export async function getDailyMacroSummary(userId: UserId, days: number) {
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+  return db
+    .select({
+      date: bkkDayMeals,
+      kcal: sql<number>`coalesce(sum(${meals.kcal}), 0)::int`,
+      protein_g: sql<number>`coalesce(sum(${meals.protein_g}), 0)::float`,
+      carb_g: sql<number>`coalesce(sum(${meals.carb_g}), 0)::float`,
+      fat_g: sql<number>`coalesce(sum(${meals.fat_g}), 0)::float`,
+      meal_count: sql<number>`count(*)::int`,
+    })
+    .from(meals)
+    .where(and(eq(meals.user_id, userId), gte(meals.datetime, since)))
+    .groupBy(bkkDayMeals)
+    .orderBy(sql`1 desc`);
+}
+
+export async function getWorkoutSummary(userId: UserId, days: number) {
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+  const exerciseKey = sql<string>`lower(${workouts.exercise})`;
+  return db
+    .select({
+      exercise: exerciseKey,
+      sessions: sql<number>`count(*)::int`,
+      total_sets: sql<number>`coalesce(sum(${workouts.sets}), 0)::int`,
+      total_reps: sql<number>`coalesce(sum(${workouts.sets} * ${workouts.reps}), 0)::int`,
+      total_volume_kg: sql<number>`coalesce(sum(${workouts.sets} * ${workouts.reps} * ${workouts.weight_kg}), 0)::float`,
+      max_weight_kg: sql<number | null>`max(${workouts.weight_kg})`,
+      total_duration_min: sql<number>`coalesce(sum(${workouts.duration_min}), 0)::int`,
+      last_done: sql<string>`to_char(max(${workouts.datetime}) AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok', 'YYYY-MM-DD')`,
+    })
+    .from(workouts)
+    .where(and(eq(workouts.user_id, userId), gte(workouts.datetime, since)))
+    .groupBy(exerciseKey)
+    .orderBy(sql`max(${workouts.datetime}) desc`);
+}
+
+export async function getWorkoutDailyVolume(userId: UserId, days: number) {
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+  return db
+    .select({
+      date: bkkDayWorkouts,
+      sessions: sql<number>`count(*)::int`,
+      total_sets: sql<number>`coalesce(sum(${workouts.sets}), 0)::int`,
+      total_volume_kg: sql<number>`coalesce(sum(${workouts.sets} * ${workouts.reps} * ${workouts.weight_kg}), 0)::float`,
+      total_duration_min: sql<number>`coalesce(sum(${workouts.duration_min}), 0)::int`,
+    })
+    .from(workouts)
+    .where(and(eq(workouts.user_id, userId), gte(workouts.datetime, since)))
+    .groupBy(bkkDayWorkouts)
+    .orderBy(sql`1 desc`);
+}
+
+export async function getWeightSeries(userId: UserId, days: number) {
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+  const sinceDate = since.toISOString().slice(0, 10);
+  return db
+    .select({ date: daily_logs.date, weight_kg: daily_logs.weight_kg })
+    .from(daily_logs)
+    .where(
+      and(
+        eq(daily_logs.user_id, userId),
+        gte(daily_logs.date, sinceDate),
+        sql`${daily_logs.weight_kg} IS NOT NULL`,
+      ),
+    )
+    .orderBy(daily_logs.date);
+}
+
+export async function pruneExpiredAgentMemory() {
+  const rows = await db
+    .delete(agent_memory)
+    .where(sql`${agent_memory.expires_at} IS NOT NULL AND ${agent_memory.expires_at} < now()`)
+    .returning({ id: agent_memory.id });
+  return rows.length;
+}
+
+// ===== Meal library =====
+export async function listMealLibrary(userId: UserId, limit = 50) {
+  return db
+    .select()
+    .from(meal_library)
+    .where(eq(meal_library.user_id, userId))
+    .orderBy(desc(meal_library.last_used_at), desc(meal_library.times_used))
+    .limit(limit);
+}
+
+export async function findMealLibraryByName(
+  userId: UserId,
+  query: string,
+  limit = 10,
+) {
+  const escaped = query.replace(/[\\%_]/g, (c) => `\\${c}`);
+  const pattern = `%${escaped}%`;
+  return db
+    .select()
+    .from(meal_library)
+    .where(
+      and(
+        eq(meal_library.user_id, userId),
+        or(
+          ilike(meal_library.name, pattern),
+          ilike(sql`${meal_library.notes}`, pattern),
+        ),
+      ),
+    )
+    .orderBy(desc(meal_library.last_used_at), desc(meal_library.times_used))
+    .limit(limit);
+}
+
+export async function upsertMealLibraryEntry(row: NewMealLibraryEntry) {
+  // Check for case-insensitive name match for this user; update if exists, else insert.
+  const [existing] = await db
+    .select()
+    .from(meal_library)
+    .where(
+      and(
+        eq(meal_library.user_id, row.user_id),
+        sql`lower(${meal_library.name}) = lower(${row.name})`,
+      ),
+    )
+    .limit(1);
+
+  if (existing) {
+    const [updated] = await db
+      .update(meal_library)
+      .set({
+        meal_type: row.meal_type ?? existing.meal_type,
+        kcal: row.kcal,
+        protein_g: row.protein_g,
+        carb_g: row.carb_g,
+        fat_g: row.fat_g,
+        prep_min: row.prep_min ?? existing.prep_min,
+        ingredients: row.ingredients ?? existing.ingredients,
+        notes: row.notes ?? existing.notes,
+        updated_at: new Date(),
+      })
+      .where(eq(meal_library.id, existing.id))
+      .returning();
+    return updated;
+  }
+  const [inserted] = await db.insert(meal_library).values(row).returning();
+  return inserted;
+}
+
+export async function bumpMealLibraryUsage(userId: UserId, name: string) {
+  await db
+    .update(meal_library)
+    .set({
+      times_used: sql`${meal_library.times_used} + 1`,
+      last_used_at: new Date(),
+      updated_at: new Date(),
+    })
+    .where(
+      and(
+        eq(meal_library.user_id, userId),
+        sql`lower(${meal_library.name}) = lower(${name})`,
+      ),
+    );
+}
+
+// ===== Pending (draft) plans =====
+export async function insertPendingPlan(row: NewPendingPlan) {
+  const [p] = await db.insert(pending_plans).values(row).returning();
+  return p;
+}
+
+export async function getActivePendingPlans(userId: UserId) {
+  return db
+    .select()
+    .from(pending_plans)
+    .where(
+      and(eq(pending_plans.user_id, userId), eq(pending_plans.status, "pending")),
+    )
+    .orderBy(desc(pending_plans.proposed_at));
+}
+
+export async function getPendingPlan(id: string, userId: UserId) {
+  const [p] = await db
+    .select()
+    .from(pending_plans)
+    .where(and(eq(pending_plans.id, id), eq(pending_plans.user_id, userId)));
+  return p ?? null;
+}
+
+export async function rejectPendingPlan(id: string, userId: UserId) {
+  const [p] = await db
+    .update(pending_plans)
+    .set({ status: "rejected", decided_at: new Date() })
+    .where(and(eq(pending_plans.id, id), eq(pending_plans.user_id, userId)))
+    .returning();
+  return p ?? null;
+}
+
+export async function approvePendingPlan(id: string, userId: UserId) {
+  const pending = await getPendingPlan(id, userId);
+  if (!pending) return { ok: false as const, reason: "not_found" };
+  if (pending.status !== "pending") {
+    return { ok: false as const, reason: `already_${pending.status}` };
+  }
+  const days = (pending.plans as PendingPlanDay[]) ?? [];
+  await upsertDailyPlansBulk(
+    days.map((d) => ({
+      user_id: userId,
+      date: d.date,
+      workout_plan: d.workout_plan ?? null,
+      meal_plan: d.meal_plan ?? null,
+      notes: d.notes ?? null,
+    })),
+  );
+  await db
+    .update(pending_plans)
+    .set({ status: "approved", decided_at: new Date() })
+    .where(eq(pending_plans.id, id));
+  return { ok: true as const, count: days.length };
+}
+
+// ===== Bulk plan upsert =====
+export async function upsertDailyPlansBulk(rows: NewDailyPlan[]) {
+  if (rows.length === 0) return [];
+  // Sequential upserts (Drizzle pg doesn't expose multi-row onConflict cleanly here)
+  const out: Awaited<ReturnType<typeof upsertDailyPlan>>[] = [];
+  for (const r of rows) {
+    out.push(await upsertDailyPlan(r));
+  }
+  return out;
+}
+
+// ===== Memory search =====
+export async function searchAgentMemory(
+  userId: UserId,
+  query: string,
+  limit = 10,
+) {
+  const escaped = query.replace(/[\\%_]/g, (c) => `\\${c}`);
+  const pattern = `%${escaped}%`;
+  return db
+    .select()
+    .from(agent_memory)
+    .where(
+      and(
+        eq(agent_memory.user_id, userId),
+        or(
+          ilike(agent_memory.value, pattern),
+          ilike(agent_memory.key, pattern),
+        ),
+      ),
+    )
+    .orderBy(desc(agent_memory.updated_at))
+    .limit(limit);
 }
 
 export type AnyMealType = MealType;

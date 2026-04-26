@@ -32,6 +32,7 @@ export const users = pgTable("users", {
   budget_per_day_thb: integer("budget_per_day_thb"),
   pantry_ingredients: text("pantry_ingredients"), // free text or comma-separated
   dietary_notes: text("dietary_notes"), // allergies, preferences
+  sports_focus: text("sports_focus"), // e.g. "badminton", "yoga" — sport-specific overlay for Trainer
   created_at: timestamp("created_at").defaultNow().notNull(),
   updated_at: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -159,6 +160,25 @@ export const daily_plans = pgTable(
   (t) => [uniqueIndex("idx_daily_plans_user_date").on(t.user_id, t.date)],
 );
 
+export const pending_plans = pgTable(
+  "pending_plans",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    user_id: text("user_id")
+      .references(() => users.id)
+      .notNull(),
+    source: text("source").notNull(), // "chat:trainer" | "chat:meal_designer" | "cron:nightly" | ...
+    reason: text("reason"),
+    plans: jsonb("plans").notNull(), // [{ date, workout_plan?, meal_plan?, notes? }]
+    status: text("status").default("pending").notNull(), // "pending" | "approved" | "rejected" | "expired"
+    proposed_at: timestamp("proposed_at").defaultNow().notNull(),
+    decided_at: timestamp("decided_at"),
+  },
+  (t) => [
+    index("idx_pending_plans_user_status").on(t.user_id, t.status, t.proposed_at),
+  ],
+);
+
 export const morning_reports = pgTable(
   "morning_reports",
   {
@@ -174,6 +194,30 @@ export const morning_reports = pgTable(
   (t) => [
     uniqueIndex("idx_morning_reports_user_date").on(t.user_id, t.date),
   ],
+);
+
+export const meal_library = pgTable(
+  "meal_library",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    user_id: text("user_id")
+      .references(() => users.id)
+      .notNull(),
+    name: text("name").notNull(),
+    meal_type: text("meal_type"), // optional default slot: breakfast/lunch/dinner/snack
+    kcal: integer("kcal").notNull(),
+    protein_g: real("protein_g").notNull(),
+    carb_g: real("carb_g").notNull(),
+    fat_g: real("fat_g").notNull(),
+    prep_min: integer("prep_min"),
+    ingredients: jsonb("ingredients"), // string[]
+    notes: text("notes"),
+    times_used: integer("times_used").default(0).notNull(),
+    last_used_at: timestamp("last_used_at"),
+    created_at: timestamp("created_at").defaultNow().notNull(),
+    updated_at: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => [index("idx_meal_library_user_name").on(t.user_id, t.name)],
 );
 
 export const llm_calls = pgTable(
@@ -207,6 +251,17 @@ export type Conversation = typeof conversations.$inferSelect;
 export type NewConversation = typeof conversations.$inferInsert;
 export type DailyLog = typeof daily_logs.$inferSelect;
 export type MorningReport = typeof morning_reports.$inferSelect;
+export type MealLibraryEntry = typeof meal_library.$inferSelect;
+export type NewMealLibraryEntry = typeof meal_library.$inferInsert;
+export type PendingPlan = typeof pending_plans.$inferSelect;
+export type NewPendingPlan = typeof pending_plans.$inferInsert;
+
+export interface PendingPlanDay {
+  date: string;
+  workout_plan?: unknown;
+  meal_plan?: unknown;
+  notes?: string | null;
+}
 
 export type UserId = "garfield" | "partner" | "test";
 export type AgentType =

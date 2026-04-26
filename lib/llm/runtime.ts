@@ -118,7 +118,11 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     estimatedComplexity: input.estimatedComplexity,
   });
 
-  const toolCtx: ToolContext = { userId: input.userId, now: new Date() };
+  const toolCtx: ToolContext = {
+    userId: input.userId,
+    now: new Date(),
+    source: `${input.persistConversation ? "chat" : "cron"}:${input.agent}`,
+  };
   const toolEvents: RunAgentResult["toolEvents"] = [];
 
   let reply = "";

@@ -3,7 +3,8 @@ import { formatInTimeZone } from "date-fns-tz";
 import { getSession } from "@/lib/auth";
 import { db, schema } from "@/lib/db/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { DAILY_CALL_CAP } from "@/lib/llm/models";
+import { DAILY_CALL_CAP, type AgentName } from "@/lib/llm/models";
+import { declarationsForAgent } from "@/lib/llm/tools";
 
 const TZ = "Asia/Bangkok";
 
@@ -35,6 +36,37 @@ export default async function AdminPage() {
     .where(sql`${schema.llm_calls.date} = ${today}`)
     .groupBy(schema.llm_calls.model)
     .catch((): ModelUsage[] => []);
+
+  const agentUsage = await db
+    .select({
+      agent: schema.llm_calls.agent,
+      total: sql<number>`count(*)::int`,
+      errors: sql<number>`count(*) filter (where ${schema.llm_calls.error} is not null)::int`,
+    })
+    .from(schema.llm_calls)
+    .where(sql`${schema.llm_calls.date} = ${today}`)
+    .groupBy(schema.llm_calls.agent)
+    .catch(() => [] as { agent: string | null; total: number; errors: number }[]);
+
+  const usageByAgent = new Map<string, { total: number; errors: number }>(
+    agentUsage
+      .filter((u): u is { agent: string; total: number; errors: number } => u.agent !== null)
+      .map((u) => [u.agent, { total: u.total, errors: u.errors }]),
+  );
+
+  const AGENTS: { name: AgentName; label: string; defaultTier: string; description: string }[] = [
+    { name: "orchestrator", label: "Orchestrator", defaultTier: "flash-lite", description: "Intent router — ตัดสินว่าข้อความเข้าหา agent ไหน" },
+    { name: "trainer", label: "Trainer", defaultTier: "flash", description: "Workout, form, programming, sport-specific" },
+    { name: "nutritionist", label: "Nutritionist", defaultTier: "flash", description: "Macro/calorie tracking, อาหารไทย" },
+    { name: "meal_designer", label: "Meal Designer", defaultTier: "flash → pro (plan)", description: "วางเมนู, recipe, grocery" },
+    { name: "reporter", label: "Reporter", defaultTier: "pro", description: "สรุปเช้า + คำถาม coaching" },
+  ];
+
+  const agentRows = AGENTS.map((a) => {
+    const tools = declarationsForAgent(a.name).map((d) => d.name).filter(Boolean) as string[];
+    const usage = usageByAgent.get(a.name);
+    return { ...a, tools, calls: usage?.total ?? 0, errors: usage?.errors ?? 0 };
+  });
 
   const counts = await Promise.all(
     [
@@ -114,6 +146,54 @@ export default async function AdminPage() {
               </tbody>
             </table>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base font-semibold">Agents</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Read-only — แสดง agent ทั้งหมดในระบบ พร้อม tools และจำนวน call วันนี้
+          </p>
+        </CardHeader>
+        <CardContent>
+          <ul className="space-y-2">
+            {agentRows.map((a) => (
+              <li key={a.name} className="rounded-md border p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-sm font-semibold">{a.label}</span>
+                      <span className="font-mono text-xs text-muted-foreground">{a.name}</span>
+                    </div>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{a.description}</p>
+                  </div>
+                  <div className="shrink-0 text-right text-xs">
+                    <div className="tabular-nums">
+                      <span className="font-medium">{a.calls}</span>
+                      <span className="text-muted-foreground"> calls</span>
+                      {a.errors > 0 && (
+                        <span className="ml-1 text-rose-600">· {a.errors} err</span>
+                      )}
+                    </div>
+                    <div className="font-mono text-[10px] text-muted-foreground">{a.defaultTier}</div>
+                  </div>
+                </div>
+                {a.tools.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {a.tools.map((t) => (
+                      <span
+                        key={t}
+                        className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]"
+                      >
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
         </CardContent>
       </Card>
 
