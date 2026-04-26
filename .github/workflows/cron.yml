@@ -1,0 +1,51 @@
+name: Cron Jobs
+
+# Replaces Vercel's `crons` config (vercel.json) for hosts that don't
+# offer scheduled invocations on the free tier (Render, Railway, etc).
+# Schedules match what was previously in vercel.json:
+#   - morning-report: 00:00 UTC = 07:00 ICT
+#   - nightly-plan:   14:00 UTC = 21:00 ICT
+# Required GitHub repo secrets:
+#   - PRODUCTION_BASE_URL  (e.g. https://ai-personal-coach.onrender.com)
+#   - CRON_SECRET          (same value set on Render)
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+    - cron: '0 14 * * *'
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Cron endpoint to hit manually'
+        required: true
+        type: choice
+        options:
+          - morning-report
+          - nightly-plan
+
+jobs:
+  morning:
+    if: github.event.schedule == '0 0 * * *' || github.event.inputs.target == 'morning-report'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit morning-report
+        env:
+          BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -fSs --max-time 150 \
+            -X GET "$BASE_URL/api/cron/morning-report" \
+            -H "Authorization: Bearer $CRON_SECRET"
+
+  nightly:
+    if: github.event.schedule == '0 14 * * *' || github.event.inputs.target == 'nightly-plan'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit nightly-plan
+        env:
+          BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -fSs --max-time 150 \
+            -X GET "$BASE_URL/api/cron/nightly-plan" \
+            -H "Authorization: Bearer $CRON_SECRET"
