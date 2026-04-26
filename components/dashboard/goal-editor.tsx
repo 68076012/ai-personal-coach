@@ -79,138 +79,156 @@ export function GoalEditor({ user }: { user: User }) {
     <div className="space-y-4">
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base font-semibold">เป้าหมาย</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="goal" className="text-xs">
-              เป้าหมาย (ใส่เป็นข้อความอิสระ — โค้ชจะอ้างอิงทุกครั้งที่คุย)
-            </Label>
-            <Textarea
-              id="goal"
-              rows={2}
-              placeholder="เช่น ลด 5kg ใน 3 เดือน โดยคงกล้ามเนื้อ"
-              value={goal}
-              onChange={(e) => setGoal(e.target.value)}
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="kcal" className="text-xs">เป้า kcal/วัน</Label>
-              <Input id="kcal" type="number" inputMode="numeric" placeholder="2200" value={kcal} onChange={(e) => setKcal(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="weight" className="text-xs">น้ำหนักปัจจุบัน (kg)</Label>
-              <Input id="weight" type="number" step="0.1" inputMode="decimal" placeholder="75" value={weight} onChange={(e) => setWeight(e.target.value)} />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="protein" className="text-xs">โปรตีน (g)</Label>
-              <Input id="protein" type="number" inputMode="numeric" value={protein} onChange={(e) => setProtein(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="carb" className="text-xs">คาร์บ (g)</Label>
-              <Input id="carb" type="number" inputMode="numeric" value={carb} onChange={(e) => setCarb(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="fat" className="text-xs">ไขมัน (g)</Label>
-              <Input id="fat" type="number" inputMode="numeric" value={fat} onChange={(e) => setFat(e.target.value)} />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="age" className="text-xs">อายุ</Label>
-              <Input id="age" type="number" inputMode="numeric" value={age} onChange={(e) => setAge(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="height" className="text-xs">ส่วนสูง (cm)</Label>
-              <Input id="height" type="number" inputMode="numeric" value={height} onChange={(e) => setHeight(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="activity" className="text-xs">Activity level</Label>
-              <select id="activity" value={activity} onChange={(e) => setActivity(e.target.value)} className="border-input bg-background flex h-9 w-full rounded-md border px-3 text-sm shadow-xs">
-                {Object.entries(ACTIVITY_LABELS).map(([key, label]) => (
-                  <option key={key} value={key}>{label}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-3">
           <CardTitle className="text-base font-semibold">
-            ข้อมูลพื้นฐาน
+            เกี่ยวกับ {user.name}
             <span className="ml-2 text-xs font-normal text-muted-foreground">
-              ช่วยให้โค้ชวางแผนได้แม่นขึ้น (ไม่บังคับ)
+              โค้ชอ้างอิงข้อมูลนี้ทุกครั้งที่คุย — เปลี่ยนได้ตลอด
             </span>
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2">
+        <CardContent className="space-y-6">
+          {/* === Section 1: เป้าหมาย & ตัวเลข === */}
+          <section className="space-y-4">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              เป้าหมาย & ตัวเลข
+            </h3>
+
             <div className="space-y-1.5">
-              <Label htmlFor="work_hours" className="flex items-center gap-1.5 text-xs">
-                <Briefcase className="size-3.5" />
-                เวลาทำงาน
+              <Label htmlFor="goal" className="text-xs">
+                เป้าหมาย (ข้อความอิสระ)
               </Label>
-              <Input id="work_hours" placeholder="เช่น 9-18, จันทร์-ศุกร์ (WFH วันพุธ)" value={workHours} onChange={(e) => setWorkHours(e.target.value)} />
+              <Textarea
+                id="goal"
+                rows={2}
+                placeholder="เช่น ลด 5kg ใน 3 เดือน โดยคงกล้ามเนื้อ"
+                value={goal}
+                onChange={(e) => setGoal(e.target.value)}
+              />
             </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="kcal" className="text-xs">เป้า kcal/วัน</Label>
+                <Input id="kcal" type="number" inputMode="numeric" placeholder="2200" value={kcal} onChange={(e) => setKcal(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="weight" className="text-xs">น้ำหนักปัจจุบัน (kg)</Label>
+                <Input id="weight" type="number" step="0.1" inputMode="decimal" placeholder="75" value={weight} onChange={(e) => setWeight(e.target.value)} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="protein" className="text-xs">โปรตีน (g)</Label>
+                <Input id="protein" type="number" inputMode="numeric" value={protein} onChange={(e) => setProtein(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="carb" className="text-xs">คาร์บ (g)</Label>
+                <Input id="carb" type="number" inputMode="numeric" value={carb} onChange={(e) => setCarb(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="fat" className="text-xs">ไขมัน (g)</Label>
+                <Input id="fat" type="number" inputMode="numeric" value={fat} onChange={(e) => setFat(e.target.value)} />
+              </div>
+            </div>
+          </section>
+
+          <hr className="border-border/60" />
+
+          {/* === Section 2: ตัวฉัน === */}
+          <section className="space-y-4">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              ตัวฉัน
+            </h3>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="age" className="text-xs">อายุ</Label>
+                <Input id="age" type="number" inputMode="numeric" value={age} onChange={(e) => setAge(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="height" className="text-xs">ส่วนสูง (cm)</Label>
+                <Input id="height" type="number" inputMode="numeric" value={height} onChange={(e) => setHeight(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="activity" className="text-xs">Activity level</Label>
+                <select id="activity" value={activity} onChange={(e) => setActivity(e.target.value)} className="border-input bg-background flex h-9 w-full rounded-md border px-3 text-sm shadow-xs">
+                  {Object.entries(ACTIVITY_LABELS).map(([key, label]) => (
+                    <option key={key} value={key}>{label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
             <div className="space-y-1.5">
-              <Label htmlFor="workout_window" className="flex items-center gap-1.5 text-xs">
-                <Clock className="size-3.5" />
-                เวลาว่างออกกำลังกาย
+              <Label htmlFor="sports_focus" className="flex items-center gap-1.5 text-xs">
+                <Trophy className="size-3.5" />
+                กีฬาที่เน้น (sport-specific)
               </Label>
-              <Input id="workout_window" placeholder="เช่น เย็น 18:30-19:30 (ยกเว้นพุธ)" value={workoutWindow} onChange={(e) => setWorkoutWindow(e.target.value)} />
+              <Input
+                id="sports_focus"
+                placeholder="เช่น badminton, volleyball, yoga"
+                value={sportsFocus}
+                onChange={(e) => setSportsFocus(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                ถ้าตั้งไว้ — เทรนเนอร์จะออกแบบ workout ให้เสริมทักษะกีฬานั้น (footwork, explosive, sport-specific stamina)
+              </p>
             </div>
-          </div>
+          </section>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="budget" className="flex items-center gap-1.5 text-xs">
-              <Wallet className="size-3.5" />
-              งบอาหาร/วัน (บาท)
-            </Label>
-            <Input id="budget" type="number" inputMode="numeric" placeholder="เช่น 250" value={budget} onChange={(e) => setBudget(e.target.value)} />
-          </div>
+          <hr className="border-border/60" />
 
-          <div className="space-y-1.5">
-            <Label htmlFor="pantry" className="flex items-center gap-1.5 text-xs">
-              <Refrigerator className="size-3.5" />
-              ของในครัว / วัตถุดิบที่มี
-            </Label>
-            <Textarea id="pantry" rows={3} placeholder="เช่น ไข่ 12 ฟอง, อกไก่ 500g, ข้าวกล้อง, ผักบุ้ง, นมจืด" value={pantry} onChange={(e) => setPantry(e.target.value)} />
-            <p className="text-xs text-muted-foreground">
-              โค้ชเชฟจะพยายามวางเมนูจากของที่มีก่อน
-            </p>
-          </div>
+          {/* === Section 3: ไลฟ์สไตล์ & อาหาร === */}
+          <section className="space-y-4">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              ไลฟ์สไตล์ & อาหาร
+            </h3>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="dietary" className="flex items-center gap-1.5 text-xs">
-              <Leaf className="size-3.5" />
-              อาหารที่กิน/ไม่กิน, แพ้, ความชอบ
-            </Label>
-            <Textarea id="dietary" rows={2} placeholder="เช่น แพ้กุ้ง, ไม่กินผักชี, ชอบอาหารเผ็ด" value={dietary} onChange={(e) => setDietary(e.target.value)} />
-          </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="work_hours" className="flex items-center gap-1.5 text-xs">
+                  <Briefcase className="size-3.5" />
+                  เวลาทำงาน
+                </Label>
+                <Input id="work_hours" placeholder="เช่น 9-18, จันทร์-ศุกร์ (WFH วันพุธ)" value={workHours} onChange={(e) => setWorkHours(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="workout_window" className="flex items-center gap-1.5 text-xs">
+                  <Clock className="size-3.5" />
+                  เวลาว่างออกกำลังกาย
+                </Label>
+                <Input id="workout_window" placeholder="เช่น เย็น 18:30-19:30 (ยกเว้นพุธ)" value={workoutWindow} onChange={(e) => setWorkoutWindow(e.target.value)} />
+              </div>
+            </div>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="sports_focus" className="flex items-center gap-1.5 text-xs">
-              <Trophy className="size-3.5" />
-              กีฬาที่เน้น (sport-specific)
-            </Label>
-            <Input
-              id="sports_focus"
-              placeholder="เช่น badminton, volleyball, yoga"
-              value={sportsFocus}
-              onChange={(e) => setSportsFocus(e.target.value)}
-            />
-            <p className="text-xs text-muted-foreground">
-              ถ้าตั้งไว้ — เทรนเนอร์จะออกแบบ workout ให้เสริมทักษะกีฬานั้น (footwork, explosive, sport-specific stamina)
-            </p>
-          </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="budget" className="flex items-center gap-1.5 text-xs">
+                <Wallet className="size-3.5" />
+                งบอาหาร/วัน (บาท)
+              </Label>
+              <Input id="budget" type="number" inputMode="numeric" placeholder="เช่น 250" value={budget} onChange={(e) => setBudget(e.target.value)} />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="pantry" className="flex items-center gap-1.5 text-xs">
+                <Refrigerator className="size-3.5" />
+                ของในครัว / วัตถุดิบที่มี
+              </Label>
+              <Textarea id="pantry" rows={3} placeholder="เช่น ไข่ 12 ฟอง, อกไก่ 500g, ข้าวกล้อง, ผักบุ้ง, นมจืด" value={pantry} onChange={(e) => setPantry(e.target.value)} />
+              <p className="text-xs text-muted-foreground">
+                โค้ชเชฟจะพยายามวางเมนูจากของที่มีก่อน
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="dietary" className="flex items-center gap-1.5 text-xs">
+                <Leaf className="size-3.5" />
+                อาหารที่กิน/ไม่กิน, แพ้, ความชอบ
+              </Label>
+              <Textarea id="dietary" rows={2} placeholder="เช่น แพ้กุ้ง, ไม่กินผักชี, ชอบอาหารเผ็ด" value={dietary} onChange={(e) => setDietary(e.target.value)} />
+            </div>
+          </section>
         </CardContent>
       </Card>
 
