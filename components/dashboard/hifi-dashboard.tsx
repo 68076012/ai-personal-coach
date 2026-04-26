@@ -22,6 +22,7 @@ import {
   X,
 } from "lucide-react";
 import { deleteLogEntry, repeatMealLog, restoreLogEntry } from "@/app/(app)/dashboard/actions";
+import { togglePlanItemDoneAction } from "@/app/(app)/dashboard/plan/actions";
 import { HiFiCard, Chip, Bar, BigNum, AppBar, HiFiButton } from "@/components/hifi";
 import { LogMealSheet } from "@/components/dashboard/log-meal-sheet";
 import { LogWeightSheet } from "@/components/dashboard/log-weight-sheet";
@@ -99,22 +100,30 @@ export function HiFiDashboard({
   }, [macros.kcal]);
   const animPct = goalKcal > 0 ? Math.max(0, Math.min(100, (animKcal / goalKcal) * 100)) : 0;
 
-  // Today plan preview = first 2 meals + first 1 workout from plan, then any
-  // logged today on top so user sees "what's done vs queued"
+  // Today plan preview = first 2 meals + first 1 workout from plan, with
+  // their plan-array indices preserved so tap-to-check writes back to the
+  // right slot on daily_plans.completion.
   const planMeals = (plan?.meal_plan as Array<{ name?: string; meal_type?: string; kcal?: number }> | null) ?? [];
   const planWorkouts = (plan?.workout_plan as Array<{ exercise?: string; sets?: number; reps?: number }> | null) ?? [];
+  const completion = (plan?.completion as
+    | { workout_done?: number[]; meal_done?: number[] }
+    | null) ?? {};
+  const mealDone = new Set(completion.meal_done ?? []);
+  const workoutDone = new Set(completion.workout_done ?? []);
   const previewItems = [
-    ...planMeals.slice(0, 2).map((m) => ({
+    ...planMeals.slice(0, 2).map((m, i) => ({
       kind: "meal" as const,
+      index: i,
       name: m.name ?? "?",
       meta: m.kcal ? `${m.kcal} ${t("kcal_short", lang)}` : "",
-      done: false,
+      done: mealDone.has(i),
     })),
-    ...planWorkouts.slice(0, 1).map((w) => ({
+    ...planWorkouts.slice(0, 1).map((w, i) => ({
       kind: "workout" as const,
+      index: i,
       name: w.exercise ?? "?",
       meta: w.sets ? `${w.sets}×${w.reps ?? "?"}` : "",
-      done: false,
+      done: workoutDone.has(i),
     })),
   ];
 
@@ -260,27 +269,16 @@ export function HiFiDashboard({
         <div className="space-y-2">
           {previewItems.length > 0 ? (
             previewItems.map((it, i) => (
-              <HiFiCard key={i} className="p-3 flex items-center gap-3">
-                <div
-                  className={cn(
-                    "size-9 rounded-[10px] flex items-center justify-center shrink-0",
-                    it.kind === "workout"
-                      ? "bg-[var(--sun-soft)] text-[#8a6712]"
-                      : "bg-[var(--leaf-soft)] text-[var(--leaf)]",
-                  )}
-                >
-                  {it.kind === "workout" ? <Dumbbell className="size-4" /> : <UtensilsCrossed className="size-4" />}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium truncate text-[var(--ink)]">{it.name}</div>
-                  {it.meta && <div className="text-xs text-[var(--ink-3)] mt-0.5">{it.meta}</div>}
-                </div>
-                {it.done ? (
-                  <Check className="size-4 text-[var(--leaf)] shrink-0" />
-                ) : (
-                  <Circle className="size-4 text-[var(--ink-4)] shrink-0" />
-                )}
-              </HiFiCard>
+              <PlanPreviewItem
+                key={`${it.kind}-${i}`}
+                kind={it.kind}
+                index={it.index}
+                name={it.name}
+                meta={it.meta}
+                done={it.done}
+                date={todayDate}
+                lang={lang}
+              />
             ))
           ) : (
             <HiFiCard className="p-5 text-center text-[13px] text-[var(--ink-3)]">
@@ -352,6 +350,87 @@ export function HiFiDashboard({
     </>
   );
 }
+
+function PlanPreviewItem({
+  kind,
+  index,
+  name,
+  meta,
+  done: initialDone,
+  date,
+  lang,
+}: {
+  kind: "meal" | "workout";
+  index: number;
+  name: string;
+  meta: string;
+  done: boolean;
+  date: string;
+  lang: Lang;
+}) {
+  // Optimistic local state: flip the check immediately, write through in
+  // the background. Revert on server error.
+  const [done, setDone] = React.useState(initialDone);
+  const [pending, startTransition] = useTransition();
+
+  function toggle() {
+    if (pending) return;
+    const next = !done;
+    setDone(next);
+    startTransition(async () => {
+      try {
+        await togglePlanItemDoneAction({ date, kind, index, done: next });
+      } catch (err) {
+        setDone(!next);
+        toast.error(err instanceof Error ? err.message : "Update failed");
+      }
+    });
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      disabled={pending}
+      className={cn(
+        "w-full p-3 flex items-center gap-3 rounded-[var(--r-lg)] border bg-[var(--surface)]",
+        "border-[var(--line)] active:scale-[0.99] transition-all text-left",
+        done && "opacity-60",
+      )}
+    >
+      <div
+        className={cn(
+          "size-9 rounded-[10px] flex items-center justify-center shrink-0",
+          kind === "workout"
+            ? "bg-[var(--sun-soft)] text-[#8a6712]"
+            : "bg-[var(--leaf-soft)] text-[var(--leaf)]",
+        )}
+      >
+        {kind === "workout" ? <Dumbbell className="size-4" /> : <UtensilsCrossed className="size-4" />}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div
+          className={cn(
+            "text-sm font-medium truncate text-[var(--ink)]",
+            done && "line-through",
+          )}
+        >
+          {name}
+        </div>
+        {meta && <div className="text-xs text-[var(--ink-3)] mt-0.5">{meta}</div>}
+      </div>
+      {done ? (
+        <div className="size-5 rounded-full bg-[var(--leaf)] text-white inline-flex items-center justify-center shrink-0">
+          <Check className="size-3" strokeWidth={3} />
+        </div>
+      ) : (
+        <Circle className="size-5 text-[var(--ink-4)] shrink-0" />
+      )}
+    </button>
+  );
+}
+// suppress unused
+void HiFiCard;
 
 function RepeatStrip({ candidate, lang }: { candidate: Meal; lang: Lang }) {
   const [pending, startTransition] = useTransition();

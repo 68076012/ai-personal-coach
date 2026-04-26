@@ -1,0 +1,1 @@
+ALTER TABLE "daily_plans" ADD COLUMN "completion" jsonb DEFAULT '{}'::jsonb;

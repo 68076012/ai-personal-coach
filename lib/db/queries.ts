@@ -134,6 +134,46 @@ export async function upsertDailyPlan(row: NewDailyPlan) {
   return p;
 }
 
+// Toggle a "done" mark on one item in either workout_plan or meal_plan
+// for a given date. Stored on daily_plans.completion as
+// { workout_done: number[], meal_done: number[] }. Indices are positions
+// within the corresponding plan array. Idempotent — toggling a checked
+// item unchecks it.
+export async function togglePlanItemDone(opts: {
+  user_id: UserId;
+  date: string;
+  kind: "workout" | "meal";
+  index: number;
+  done: boolean;
+}) {
+  const existing = await getDailyPlan(opts.user_id, opts.date);
+  const completion =
+    (existing?.completion as
+      | { workout_done?: number[]; meal_done?: number[] }
+      | null) ?? {};
+  const key = opts.kind === "workout" ? "workout_done" : "meal_done";
+  const current = new Set(completion[key] ?? []);
+  if (opts.done) current.add(opts.index);
+  else current.delete(opts.index);
+  const nextCompletion = {
+    ...completion,
+    [key]: Array.from(current).sort((a, b) => a - b),
+  };
+  const [row] = await db
+    .insert(daily_plans)
+    .values({
+      user_id: opts.user_id,
+      date: opts.date,
+      completion: nextCompletion,
+    })
+    .onConflictDoUpdate({
+      target: [daily_plans.user_id, daily_plans.date],
+      set: { completion: nextCompletion, updated_at: new Date() },
+    })
+    .returning();
+  return row;
+}
+
 export async function setWorkoutPaused(
   userId: UserId,
   date: string,
