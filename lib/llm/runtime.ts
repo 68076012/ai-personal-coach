@@ -11,7 +11,7 @@ import {
 } from "@/lib/db/queries";
 import type { AgentType, UserId } from "@/lib/db/schema";
 import { callGemini } from "./client";
-import { chooseModel, type AgentName, type Task } from "./models";
+import { chooseModel, type AgentName, type ModelTier, type Task } from "./models";
 import { commonHeader, type PromptContext } from "./prompts";
 import { sanitizeAssistantText } from "./sanitize";
 import {
@@ -79,6 +79,10 @@ export interface RunAgentInput {
   task?: Task;
   estimatedComplexity?: "low" | "medium" | "high";
   persistConversation?: boolean;
+  // Force a specific model tier instead of `chooseModel(...)`. The fallback
+  // chain in `client.ts` still applies if the chosen tier is unavailable —
+  // this just sets the starting point.
+  overrideTier?: ModelTier;
 }
 
 export interface RunAgentResult {
@@ -112,12 +116,14 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
   }
   contents.push(toContent("user", input.userMessage));
 
-  const tier = chooseModel({
-    agent: input.agent,
-    task: input.task ?? "chat",
-    hasTools: tools.length > 0,
-    estimatedComplexity: input.estimatedComplexity,
-  });
+  const tier =
+    input.overrideTier ??
+    chooseModel({
+      agent: input.agent,
+      task: input.task ?? "chat",
+      hasTools: tools.length > 0,
+      estimatedComplexity: input.estimatedComplexity,
+    });
 
   const toolCtx: ToolContext = {
     userId: input.userId,

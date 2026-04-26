@@ -5,6 +5,11 @@ import { LLMChainError, type LLMChainKind } from "@/lib/llm/client";
 import { runAgent } from "@/lib/llm/runtime";
 import { routeMessage, specialistsFor } from "@/lib/llm/orchestrator";
 import {
+  isPlanSynthesisRoute,
+  runPlanSynthesis,
+} from "@/lib/llm/plan-synthesis";
+import type { ModelTier } from "@/lib/llm/models";
+import {
   TRAINER_PROMPT,
   NUTRITIONIST_PROMPT,
   MEAL_DESIGNER_PROMPT,
@@ -28,6 +33,9 @@ const Body = z.object({
   agent: z
     .enum(["trainer", "nutritionist", "meal_designer", "reporter", "auto"])
     .default("auto"),
+  model: z
+    .enum(["pro", "flash", "flash-lite", "kimi", "auto"])
+    .default("auto"),
 });
 
 const PROMPT_BY_AGENT = {
@@ -48,8 +56,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "bad_input" }, { status: 400 });
   }
 
+  const overrideTier: ModelTier | undefined =
+    parsed.data.model === "auto" ? undefined : (parsed.data.model as ModelTier);
+
   let agents: Array<keyof typeof PROMPT_BY_AGENT>;
   let routedNotice: string | null = null;
+  let synthesisSpecialists: ("trainer" | "meal_designer")[] | null = null;
 
   if (parsed.data.agent === "auto") {
     const routed = await routeMessage(parsed.data.message);
@@ -57,6 +69,13 @@ export async function POST(req: Request) {
       // Borderline → ask user to disambiguate (single short reply)
       routedNotice =
         "ยังไม่แน่ใจว่าควรให้ใครตอบดี ลองบอกเพิ่มอีกนิดได้มั้ย? เช่น เกี่ยวกับมื้ออาหาร, ออกกำลังกาย, แผนพรุ่งนี้?";
+    }
+    // Multi-agent + plan-creation intent → orchestrator-synthesis path.
+    // This collapses the parallel "Chef chat + Trainer chat" output into one
+    // merged Plan that lands in pending_plans for Approve/Reject.
+    const synthCheck = isPlanSynthesisRoute(parsed.data.message, routed.agents);
+    if (synthCheck.yes) {
+      synthesisSpecialists = synthCheck.specialists;
     }
     agents = specialistsFor(routed.agents);
   } else {
@@ -74,6 +93,54 @@ export async function POST(req: Request) {
         },
       ],
     });
+  }
+
+  if (synthesisSpecialists) {
+    console.log(
+      `[/api/chat] plan-synthesis path → specialists=${synthesisSpecialists.join("+")}`,
+    );
+    try {
+      const result = await runPlanSynthesis({
+        userId: session.userId,
+        message: parsed.data.message,
+        specialists: synthesisSpecialists,
+        overrideTier,
+      });
+      return NextResponse.json({
+        ok: true,
+        replies: [
+          {
+            agent: "orchestrator",
+            reply: result.reply,
+            toolEvents: [
+              {
+                tool: "propose_plan_bulk",
+                args: {
+                  reason: `auto-synth: ${synthesisSpecialists.join("+")}`,
+                  plans: result.plansForCard,
+                },
+                result: {
+                  ok: true,
+                  data: {
+                    pending_id: result.pendingPlanId,
+                    count: result.dates.length,
+                    dates: result.dates,
+                    status: "pending",
+                    review_url: "/dashboard/plan",
+                    note: "Plan saved as draft — user must approve at /dashboard/plan to apply.",
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      });
+    } catch (err) {
+      // Synthesis failed — fall through to per-agent loop so the user still
+      // gets *something* back rather than a hard error.
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[/api/chat] plan-synthesis failed, falling back: ${msg}`);
+    }
   }
 
   console.log(
@@ -98,6 +165,7 @@ export async function POST(req: Request) {
         systemSuffix: PROMPT_BY_AGENT[agent],
         task: agent === "reporter" ? "report" : "chat",
         persistConversation: true,
+        overrideTier,
       });
       replies.push({
         agent: result.agent,
