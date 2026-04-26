@@ -123,6 +123,10 @@ function contentsToMessages(
 }
 
 export interface CallKimiParams {
+  // Specific Moonshot model id. Caller decides — typically GEMINI_MODEL[tier]
+  // for whichever Kimi tier was requested. Falls back to GEMINI_MODEL.kimi
+  // for callers that don't specify (legacy).
+  model?: string;
   systemInstruction: string;
   contents: Content[];
   tools?: FunctionDeclaration[];
@@ -145,7 +149,7 @@ export async function callKimi(
   // default avoids maintaining a per-model whitelist and keeps adding new
   // models risk-free.
   const completion = await client.chat.completions.create({
-    model: GEMINI_MODEL.kimi,
+    model: params.model ?? GEMINI_MODEL.kimi,
     messages,
     tools,
     tool_choice: tools ? "auto" : undefined,

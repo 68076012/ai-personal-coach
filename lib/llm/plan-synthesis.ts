@@ -23,6 +23,10 @@ export interface RunPlanSynthesisInput {
   message: string;
   specialists: PlanSpecialist[];
   overrideTier?: ModelTier;
+  // Optional progress callback. The chat route uses this to surface phase
+  // labels through the SSE stream so the user sees what's happening
+  // instead of staring at silent dots for 15-30s.
+  onPhase?: (label: string) => void;
 }
 
 export interface RunPlanSynthesisResult {
@@ -266,7 +270,7 @@ async function synthesize(
 export async function runPlanSynthesis(
   input: RunPlanSynthesisInput,
 ): Promise<RunPlanSynthesisResult> {
-  const { userId, message, specialists, overrideTier } = input;
+  const { userId, message, specialists, overrideTier, onPhase } = input;
   const { dates, label: dateLabel } = resolveTargetDates(message);
   const wantWorkout = specialists.includes("trainer");
   const wantMeals = specialists.includes("meal_designer");
@@ -282,6 +286,15 @@ export async function runPlanSynthesis(
     console.warn("[plan-synthesis] logTurn(user) failed:", err);
   }
 
+  const draftLabels: string[] = [];
+  if (wantWorkout) draftLabels.push("workout");
+  if (wantMeals) draftLabels.push("เมนู");
+  onPhase?.(
+    draftLabels.length
+      ? `ร่าง ${draftLabels.join(" + ")} (${dateLabel})…`
+      : `ร่างแผน (${dateLabel})…`,
+  );
+
   const [workout, meals] = await Promise.all([
     wantWorkout
       ? draftWorkoutSlice(userId, message, dates, dateLabel, overrideTier)
@@ -290,6 +303,7 @@ export async function runPlanSynthesis(
       ? draftMealSlice(userId, message, dates, dateLabel, overrideTier)
       : Promise.resolve([] as MealItem[]),
   ]);
+  onPhase?.("รวมแผนเป็นชุดเดียว…");
 
   // Default to Flash for synthesis — Pro 2.5 with thinking can run 20-40s
   // and timed out the function on Vercel. Flash + capped thinkingBudget
@@ -311,6 +325,7 @@ export async function runPlanSynthesis(
   };
   const plansForBulk = dates.map((date) => ({ date, ...planForPersist }));
 
+  onPhase?.("เซฟร่างแผนเข้าระบบ…");
   const reasonText = `auto-synth: ${dateLabel} | ${specialists.join("+")}`;
   const toolResult = await executeTool(
     { userId, now: new Date(), source: "chat:orchestrator" },
