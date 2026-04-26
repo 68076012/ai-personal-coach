@@ -164,6 +164,10 @@ async function draftWorkoutSlice(
       contents: [{ role: "user", parts: [{ text: message }] }],
       agent: "trainer",
       userId,
+      // Drafts emit JSON from a fixed schema — no reasoning needed. Disabling
+      // thinking shaves 2-5s off each call and is the difference between
+      // landing inside Vercel's 60s budget and timing out.
+      thinkingBudget: 0,
     });
     const parsed = extractJson(res.text ?? "");
     if (!parsed || typeof parsed !== "object") return [];
@@ -199,6 +203,7 @@ async function draftMealSlice(
       contents: [{ role: "user", parts: [{ text: message }] }],
       agent: "meal_designer",
       userId,
+      thinkingBudget: 0,
     });
     const parsed = extractJson(res.text ?? "");
     if (!parsed || typeof parsed !== "object") return [];
@@ -235,6 +240,10 @@ async function synthesize(
     contents: [{ role: "user", parts: [{ text: draftsBlock }] }],
     agent: "orchestrator",
     userId,
+    // Cap reasoning so Pro/Flash 2.5 don't stall the function. Merge logic
+    // is mechanical (combine slices, scale kcal, swap exercises for
+    // sports_focus); 1024 thinking tokens is plenty.
+    thinkingBudget: 1024,
   });
   const parsed = extractJson(res.text ?? "");
   if (!parsed || typeof parsed !== "object") {
@@ -265,7 +274,11 @@ export async function runPlanSynthesis(
     wantMeals ? draftMealSlice(userId, message, dates, dateLabel) : Promise.resolve([] as MealItem[]),
   ]);
 
-  const synthTier: ModelTier = overrideTier ?? "pro";
+  // Default to Flash for synthesis — Pro 2.5 with thinking can run 20-40s
+  // and timed out the function on Vercel. Flash + capped thinkingBudget
+  // produces a usable merge in 5-10s. Users can still force Pro via the
+  // model selector if they want richer reasoning.
+  const synthTier: ModelTier = overrideTier ?? "flash";
   const { plan, summary } = await synthesize(
     userId,
     message,

@@ -26,7 +26,11 @@ const CHAIN_USER_MESSAGE: Record<LLMChainKind, string> = {
 };
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+// Plan-synthesis path runs 3 LLM calls + 3 DB context fetches; the
+// per-agent path can chain 6+ tool-call rounds. 60s was tight enough
+// that cold-start + Pro thinking blew the budget — bump to 120 for
+// safety margin. Requires Vercel Pro plan (Hobby caps at 60s).
+export const maxDuration = 120;
 
 const Body = z.object({
   message: z.string().min(1).max(4000),
