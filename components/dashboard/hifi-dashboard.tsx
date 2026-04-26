@@ -4,10 +4,14 @@ import * as React from "react";
 import { useTransition } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { formatInTimeZone } from "date-fns-tz";
+
+const TZ = "Asia/Bangkok";
 import {
   ChevronRight,
   Dumbbell,
   Flame,
+  RotateCcw,
   Soup,
   Sparkles,
   Sun,
@@ -17,9 +21,10 @@ import {
   Circle,
   X,
 } from "lucide-react";
-import { deleteLogEntry } from "@/app/(app)/dashboard/actions";
+import { deleteLogEntry, repeatMealLog, restoreLogEntry } from "@/app/(app)/dashboard/actions";
 import { HiFiCard, Chip, Bar, BigNum, AppBar, HiFiButton } from "@/components/hifi";
 import { LogMealSheet } from "@/components/dashboard/log-meal-sheet";
+import { LogWeightSheet } from "@/components/dashboard/log-weight-sheet";
 import { t, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import type { DailyPlan, Meal, MorningReport, User, Workout } from "@/lib/db/schema";
@@ -48,6 +53,7 @@ interface Props {
   plan: DailyPlan | null;
   report: MorningReport | null;
   streakDays: number;
+  repeatCandidate: Meal | null;
 }
 
 export function HiFiDashboard({
@@ -61,6 +67,7 @@ export function HiFiDashboard({
   plan,
   report,
   streakDays,
+  repeatCandidate,
 }: Props) {
   // Date eyebrow
   const d = new Date(todayDate + "T00:00:00+07:00");
@@ -82,6 +89,7 @@ export function HiFiDashboard({
   const pct = goalKcal > 0 ? Math.max(0, Math.min(100, Math.round((macros.kcal / goalKcal) * 100))) : 0;
 
   const [sheetOpen, setSheetOpen] = React.useState(false);
+  const [weightSheetOpen, setWeightSheetOpen] = React.useState(false);
 
   // Animated kcal hero — count up briefly so the dashboard feels alive on landing.
   const [animKcal, setAnimKcal] = React.useState(0);
@@ -193,6 +201,13 @@ export function HiFiDashboard({
           </div>
         </section>
 
+        {/* Repeat-yesterday suggestion strip — only shows when there's a
+            yesterday meal of the current-hour's meal_type AND the user
+            hasn't already logged that slot today. One-tap copy. */}
+        {repeatCandidate && (
+          <RepeatStrip candidate={repeatCandidate} lang={lang} />
+        )}
+
         {/* Quick-log tiles. Log meal opens a BottomSheet form (skip the
             chat round-trip when macros are known); workout + weight
             still drop into chat with a prefilled draft because the
@@ -213,11 +228,13 @@ export function HiFiDashboard({
               <span>{t("log_workout", lang)}</span>
             </Link>
           </HiFiButton>
-          <HiFiButton size="tile" asChild>
-            <Link href={`/dashboard/chat?draft=${encodeURIComponent("น้ำหนักวันนี้...")}`}>
-              <TrendingUp className="size-5 text-[var(--sky)]" />
-              <span>{t("log_weight", lang)}</span>
-            </Link>
+          <HiFiButton
+            size="tile"
+            type="button"
+            onClick={() => setWeightSheetOpen(true)}
+          >
+            <TrendingUp className="size-5 text-[var(--sky)]" />
+            <span>{t("log_weight", lang)}</span>
           </HiFiButton>
         </div>
 
@@ -286,6 +303,7 @@ export function HiFiDashboard({
                   table="meals"
                   icon="meal"
                   title={m.food_name}
+                  time={formatInTimeZone(m.datetime, TZ, "HH:mm")}
                   meta={`${m.kcal} ${t("kcal_short", lang)} · P${Math.round(m.protein_g)}g`}
                   lang={lang}
                 />
@@ -297,6 +315,7 @@ export function HiFiDashboard({
                   table="workouts"
                   icon="workout"
                   title={w.exercise}
+                  time={formatInTimeZone(w.datetime, TZ, "HH:mm")}
                   meta={`${w.sets ?? "?"}×${w.reps ?? "?"}${w.weight_kg ? ` @ ${w.weight_kg}kg` : ""}`}
                   lang={lang}
                 />
@@ -324,7 +343,67 @@ export function HiFiDashboard({
         lang={lang}
         hourBkk={hourBkk}
       />
+      <LogWeightSheet
+        open={weightSheetOpen}
+        onOpenChange={setWeightSheetOpen}
+        lang={lang}
+        initialWeight={user.current_weight_kg ?? null}
+      />
     </>
+  );
+}
+
+function RepeatStrip({ candidate, lang }: { candidate: Meal; lang: Lang }) {
+  const [pending, startTransition] = useTransition();
+  const [done, setDone] = React.useState(false);
+
+  function onTap() {
+    if (pending) return;
+    startTransition(async () => {
+      try {
+        const r = await repeatMealLog({ source_id: candidate.id });
+        setDone(true);
+        toast.success(
+          lang === "th"
+            ? `เพิ่ม ${candidate.food_name} แล้ว — ${r.kcal} ${t("kcal_short", lang)}`
+            : `Logged ${candidate.food_name} — ${r.kcal} ${t("kcal_short", lang)}`,
+        );
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Repeat failed");
+      }
+    });
+  }
+
+  if (done) return null;
+
+  const mealLabel = t(candidate.meal_type as "breakfast" | "lunch" | "dinner" | "snack", lang);
+
+  return (
+    <button
+      type="button"
+      onClick={onTap}
+      disabled={pending}
+      className={cn(
+        "w-full flex items-center gap-3 p-3 rounded-[14px] text-left transition-colors disabled:opacity-60",
+        "border border-[var(--accent)]/30 bg-[var(--accent-soft)] active:scale-[0.99]",
+      )}
+    >
+      <div className="size-9 rounded-[10px] bg-[var(--accent)] text-white inline-flex items-center justify-center shrink-0">
+        <RotateCcw className="size-4" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--accent)]">
+          {lang === "th" ? `ซ้ำ${mealLabel}เมื่อวาน` : `Repeat yesterday's ${mealLabel.toLowerCase()}`}
+        </div>
+        <div className="text-sm font-semibold text-[var(--ink)] truncate">
+          {candidate.food_name}
+        </div>
+        <div className="text-xs text-[var(--ink-3)] tabular">
+          {candidate.kcal} {t("kcal_short", lang)} · P{Math.round(candidate.protein_g)}g
+        </div>
+      </div>
+      <ChevronRight className="size-4 text-[var(--accent)] shrink-0" />
+    </button>
   );
 }
 
@@ -333,6 +412,7 @@ function RecentLogRow({
   table,
   icon,
   title,
+  time,
   meta,
   lang,
 }: {
@@ -340,6 +420,7 @@ function RecentLogRow({
   table: "meals" | "workouts";
   icon: "meal" | "workout";
   title: string;
+  time?: string;
   meta: string;
   lang: Lang;
 }) {
@@ -347,12 +428,25 @@ function RecentLogRow({
   const [hidden, setHidden] = React.useState(false);
 
   function onDelete() {
-    if (!confirm(lang === "th" ? "ลบรายการนี้? undo ไม่ได้" : "Delete this entry? Undo is not available.")) return;
     startTransition(async () => {
       try {
-        await deleteLogEntry({ table, id });
+        const r = await deleteLogEntry({ table, id });
         setHidden(true);
-        toast.success(lang === "th" ? "ลบแล้ว" : "Deleted");
+        // Friendlier than window.confirm — sonner action toast with 5s undo.
+        toast.success(lang === "th" ? "ลบแล้ว" : "Deleted", {
+          duration: 5000,
+          action: {
+            label: lang === "th" ? "เลิกทำ" : "Undo",
+            onClick: async () => {
+              try {
+                await restoreLogEntry({ table, row: r.row });
+                setHidden(false);
+              } catch (err) {
+                toast.error(err instanceof Error ? err.message : "Undo failed");
+              }
+            },
+          },
+        });
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Delete failed");
       }
@@ -374,7 +468,14 @@ function RecentLogRow({
         {icon === "workout" ? <Dumbbell className="size-4" /> : <UtensilsCrossed className="size-4" />}
       </div>
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium truncate">{title}</div>
+        <div className="flex items-baseline gap-2">
+          <div className="text-sm font-medium truncate">{title}</div>
+          {time && (
+            <span className="text-[10px] tabular text-[var(--ink-3)] shrink-0">
+              {time}
+            </span>
+          )}
+        </div>
         <div className="text-xs text-[var(--ink-3)]">{meta}</div>
       </div>
       <button

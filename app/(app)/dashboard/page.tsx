@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import {
   getDailyPlan,
   getDayMacros,
+  getMealsSince,
   getMorningReport,
   getRecentMeals,
   getRecentWorkouts,
@@ -10,9 +11,16 @@ import {
 } from "@/lib/db/queries";
 import { getLang } from "@/lib/i18n/server";
 import { HiFiDashboard } from "@/components/dashboard/hifi-dashboard";
-import type { UserId } from "@/lib/db/schema";
+import type { Meal, MealType, UserId } from "@/lib/db/schema";
 import { db, schema } from "@/lib/db/client";
 import { and, desc, eq, sql } from "drizzle-orm";
+
+function expectedMealType(hourBkk: number): MealType {
+  if (hourBkk < 10) return "breakfast";
+  if (hourBkk < 14) return "lunch";
+  if (hourBkk < 17) return "snack";
+  return "dinner";
+}
 
 const TZ = "Asia/Bangkok";
 
@@ -69,7 +77,11 @@ export default async function DashboardHome() {
   const dayStart = new Date(`${todayDate}T00:00:00+07:00`);
   const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
 
-  const [user, plan, macros, meals, workouts, report, lang, streak] = await Promise.all([
+  // Yesterday window in Bangkok tz, used to find a "Repeat yesterday's
+  // <meal>" candidate for the dashboard suggestion strip.
+  const yStart = new Date(dayStart.getTime() - 24 * 60 * 60 * 1000);
+
+  const [user, plan, macros, meals, workouts, report, lang, streak, yesterdayMeals] = await Promise.all([
     getUser(userId).catch(() => null),
     getDailyPlan(userId, todayDate).catch(() => null),
     getDayMacros(userId, dayStart, dayEnd).catch(() => ({
@@ -83,7 +95,24 @@ export default async function DashboardHome() {
     getMorningReport(userId, todayDate).catch(() => null),
     getLang(),
     getMealStreak(userId),
+    getMealsSince(userId, yStart).catch(() => [] as Meal[]),
   ]);
+
+  // Repeat-candidate: most recent meal from yesterday whose meal_type
+  // matches what we'd expect at the current Bangkok hour (breakfast in
+  // the morning, lunch midday, etc.). Falls through to nothing if user
+  // already logged that slot today (we don't want to nag them).
+  const wantType = expectedMealType(hourBkk);
+  const todayHasType = meals.some((m) => {
+    const d = formatInTimeZone(m.datetime, TZ, "yyyy-MM-dd");
+    return d === todayDate && m.meal_type === wantType;
+  });
+  const repeatCandidate: Meal | null = todayHasType
+    ? null
+    : (yesterdayMeals.find((m) => {
+        const d = formatInTimeZone(m.datetime, TZ, "yyyy-MM-dd");
+        return d !== todayDate && m.meal_type === wantType;
+      }) ?? null);
 
   if (!user) {
     return (
@@ -105,6 +134,7 @@ export default async function DashboardHome() {
       plan={plan}
       report={report}
       streakDays={streak}
+      repeatCandidate={repeatCandidate}
     />
   );
 }
