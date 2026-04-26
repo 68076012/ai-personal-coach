@@ -269,6 +269,29 @@ export function HiFiDashboard({
           <MacroRow label={t("fats", lang)}    value={Math.round(macros.fat_g)}     goal={user.goal_fat_g}     color="coral" />
         </HiFiCard>
 
+        {/* Quick-plan row — links to chat with prefilled drafts so the user
+            can spin up a plan without navigating to /dashboard/plan first.
+            Same drafts the Plan page's Quick start card uses, mirrored here
+            for one-tap access on the home dashboard. */}
+        <div className="grid grid-cols-2 gap-2 pt-1">
+          <HiFiButton size="sm" asChild>
+            <Link
+              href={`/dashboard/chat?draft=${encodeURIComponent("ช่วยวางแผนวันนี้ — workout + เมนูทั้งวัน")}`}
+            >
+              <Sparkles className="size-4 text-[var(--accent)]" />
+              <span>{t("plan_today", lang)}</span>
+            </Link>
+          </HiFiButton>
+          <HiFiButton size="sm" asChild>
+            <Link
+              href={`/dashboard/chat?draft=${encodeURIComponent("ช่วยวางแผน 7 วันถัดไป — เมนูทั้งวัน + workout split, เรียก propose_plan_bulk รอบเดียวเป็น draft")}`}
+            >
+              <Sparkles className="size-4 text-[var(--accent)]" />
+              <span>{t("plan_week", lang)}</span>
+            </Link>
+          </HiFiButton>
+        </div>
+
         {/* Today plan preview */}
         <div className="flex items-center justify-between px-1.5 pt-1">
           <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--ink-3)]">

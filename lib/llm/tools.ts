@@ -98,6 +98,7 @@ const SaveMealArgs = z.object({
   fat_g: z.number().nonnegative(),
   prep_min: z.number().int().nonnegative().max(600).optional(),
   ingredients: z.array(z.string()).max(50).optional(),
+  recipe: z.string().max(4000).optional(),
   notes: z.string().max(500).optional(),
 });
 
@@ -450,7 +451,7 @@ export const TOOL_DECLARATIONS: Record<string, FunctionDeclaration> = {
   save_meal: {
     name: "save_meal",
     description:
-      "บันทึกเมนูเข้า meal library ของผู้ใช้ (re-usable favorite). เรียกหลังผู้ใช้บอกว่าชอบเมนูนี้ หรือเมื่อ propose_meals เสนอเมนูใหม่ที่ดีพอจะเก็บไว้. ถ้าเมนูชื่อเดิมมีอยู่แล้ว → จะ update macros ทับ",
+      "บันทึกเมนูเข้า meal library ของผู้ใช้ (re-usable favorite). เรียกหลังผู้ใช้บอกว่าชอบเมนูนี้ หรือเมื่อ propose_meals เสนอเมนูใหม่ที่ดีพอจะเก็บไว้. ถ้าเมนูชื่อเดิมมีอยู่แล้ว → จะ update macros ทับ. **เก็บ ingredients (วัตถุดิบ) และ recipe (วิธีทำ) เสมอเมื่อมีข้อมูล** — UI ของ library โชว์ทั้งสองอย่างเป็น expand panel ให้ user ดูตอนตัดสินใจว่าจะกินอะไร",
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -464,7 +465,16 @@ export const TOOL_DECLARATIONS: Record<string, FunctionDeclaration> = {
         carb_g: { type: Type.NUMBER },
         fat_g: { type: Type.NUMBER },
         prep_min: { type: Type.INTEGER },
-        ingredients: { type: Type.ARRAY, items: { type: Type.STRING } },
+        ingredients: {
+          type: Type.ARRAY,
+          items: { type: Type.STRING },
+          description: "รายการวัตถุดิบ พร้อมปริมาณ เช่น ['ไก่อก 150g', 'ข้าวกล้อง 1 ทัพพี']",
+        },
+        recipe: {
+          type: Type.STRING,
+          description:
+            "วิธีทำ markdown ได้ — ขั้นตอนการปรุง 3-6 ขั้น กระชับ. เก็บเสมอถ้า user หรือ agent คิดเมนูใหม่ขึ้นมา; library UI จะแสดงในปุ่ม expand",
+        },
         notes: { type: Type.STRING },
       },
       required: ["name", "kcal", "protein_g", "carb_g", "fat_g"],
@@ -898,6 +908,7 @@ export async function executeTool(
           fat_g: a.fat_g,
           prep_min: a.prep_min ?? null,
           ingredients: a.ingredients ?? null,
+          recipe: a.recipe ?? null,
           notes: a.notes ?? null,
         });
         return { ok: true, data: { id: row.id, name: row.name } };

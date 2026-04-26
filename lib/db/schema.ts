@@ -216,6 +216,7 @@ export const meal_library = pgTable(
     fat_g: real("fat_g").notNull(),
     prep_min: integer("prep_min"),
     ingredients: jsonb("ingredients"), // string[]
+    recipe: text("recipe"), // free-form cooking instructions; markdown ok
     notes: text("notes"),
     times_used: integer("times_used").default(0).notNull(),
     last_used_at: timestamp("last_used_at"),
