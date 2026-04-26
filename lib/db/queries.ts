@@ -203,6 +203,64 @@ export async function getAgentMemory(
     .limit(limit);
 }
 
+// ===== Conversation archival =====
+// Find all (user_id, isoYear, isoWeek) groupings of conversations older than
+// `cutoffDate` so a cron can summarize them into agent_memory and delete
+// the originals. Returns {user_id, year, week, count} buckets.
+export async function getArchivableConversationWeeks(cutoffDate: Date) {
+  return db
+    .select({
+      user_id: conversations.user_id,
+      year: sql<number>`extract(isoyear from ${conversations.created_at})::int`,
+      week: sql<number>`extract(week from ${conversations.created_at})::int`,
+      count: sql<number>`count(*)::int`,
+      earliest: sql<Date>`min(${conversations.created_at})`,
+    })
+    .from(conversations)
+    .where(lt(conversations.created_at, cutoffDate))
+    .groupBy(
+      conversations.user_id,
+      sql`extract(isoyear from ${conversations.created_at})`,
+      sql`extract(week from ${conversations.created_at})`,
+    );
+}
+
+export async function getConversationsForWeek(
+  userId: UserId,
+  isoYear: number,
+  isoWeek: number,
+) {
+  return db
+    .select()
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.user_id, userId),
+        sql`extract(isoyear from ${conversations.created_at}) = ${isoYear}`,
+        sql`extract(week from ${conversations.created_at}) = ${isoWeek}`,
+      ),
+    )
+    .orderBy(conversations.created_at);
+}
+
+export async function deleteConversationsForWeek(
+  userId: UserId,
+  isoYear: number,
+  isoWeek: number,
+) {
+  const rows = await db
+    .delete(conversations)
+    .where(
+      and(
+        eq(conversations.user_id, userId),
+        sql`extract(isoyear from ${conversations.created_at}) = ${isoYear}`,
+        sql`extract(week from ${conversations.created_at}) = ${isoWeek}`,
+      ),
+    )
+    .returning({ id: conversations.id });
+  return rows.length;
+}
+
 export async function getMonthlyGoals(userId: UserId, monthYYYYMM: string) {
   const prefix = `goal_month_${monthYYYYMM}_%`;
   return db
