@@ -3,7 +3,12 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { getSession } from "@/lib/auth";
-import { setWorkoutPaused, upsertDailyPlan } from "@/lib/db/queries";
+import {
+  approvePendingPlan as approvePendingPlanQuery,
+  rejectPendingPlan as rejectPendingPlanQuery,
+  setWorkoutPaused,
+  upsertDailyPlan,
+} from "@/lib/db/queries";
 import { PlanSchema } from "@/lib/plan-types";
 import type { UserId } from "@/lib/db/schema";
 
@@ -35,6 +40,37 @@ const ToggleWorkoutPauseInput = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   paused: z.boolean(),
 });
+
+const PendingActionInput = z.object({ id: z.string().uuid() });
+
+export async function approvePendingPlan(input: z.infer<typeof PendingActionInput>) {
+  const session = await getSession();
+  if (!session.userId) throw new Error("unauthenticated");
+  const parsed = PendingActionInput.safeParse(input);
+  if (!parsed.success) throw new Error("bad_request");
+  const result = await approvePendingPlanQuery(
+    parsed.data.id,
+    session.userId as UserId,
+  );
+  if (!result.ok) throw new Error(result.reason);
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/plan");
+  return { ok: true, applied: result.count };
+}
+
+export async function rejectPendingPlan(input: z.infer<typeof PendingActionInput>) {
+  const session = await getSession();
+  if (!session.userId) throw new Error("unauthenticated");
+  const parsed = PendingActionInput.safeParse(input);
+  if (!parsed.success) throw new Error("bad_request");
+  const row = await rejectPendingPlanQuery(
+    parsed.data.id,
+    session.userId as UserId,
+  );
+  if (!row) throw new Error("not_found");
+  revalidatePath("/dashboard/plan");
+  return { ok: true };
+}
 
 export async function toggleWorkoutPause(
   input: z.infer<typeof ToggleWorkoutPauseInput>,

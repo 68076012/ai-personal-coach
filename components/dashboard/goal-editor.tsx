@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import { Briefcase, Clock, Wallet, Refrigerator, Leaf } from "lucide-react";
+import { Briefcase, Clock, Wallet, Refrigerator, Leaf, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -45,6 +45,7 @@ export function GoalEditor({ user }: { user: User }) {
   const [budget, setBudget] = useState(user.budget_per_day_thb?.toString() ?? "");
   const [pantry, setPantry] = useState(user.pantry_ingredients ?? "");
   const [dietary, setDietary] = useState(user.dietary_notes ?? "");
+  const [sportsFocus, setSportsFocus] = useState(user.sports_focus ?? "");
   const [pending, startTransition] = useTransition();
 
   function onSave() {
@@ -65,6 +66,7 @@ export function GoalEditor({ user }: { user: User }) {
           budget_per_day_thb: toNumberOrNull(budget),
           pantry_ingredients: nullIfEmpty(pantry),
           dietary_notes: nullIfEmpty(dietary),
+          sports_focus: nullIfEmpty(sportsFocus),
         });
         toast.success("บันทึกเป้าหมายแล้ว — โค้ชจะใช้ข้อมูลใหม่ในการสนทนาครั้งถัดไป");
       } catch (err) {
@@ -192,6 +194,22 @@ export function GoalEditor({ user }: { user: User }) {
               อาหารที่กิน/ไม่กิน, แพ้, ความชอบ
             </Label>
             <Textarea id="dietary" rows={2} placeholder="เช่น แพ้กุ้ง, ไม่กินผักชี, ชอบอาหารเผ็ด" value={dietary} onChange={(e) => setDietary(e.target.value)} />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="sports_focus" className="flex items-center gap-1.5 text-xs">
+              <Trophy className="size-3.5" />
+              กีฬาที่เน้น (sport-specific)
+            </Label>
+            <Input
+              id="sports_focus"
+              placeholder="เช่น badminton, volleyball, yoga"
+              value={sportsFocus}
+              onChange={(e) => setSportsFocus(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              ถ้าตั้งไว้ — เทรนเนอร์จะออกแบบ workout ให้เสริมทักษะกีฬานั้น (footwork, explosive, sport-specific stamina)
+            </p>
           </div>
         </CardContent>
       </Card>

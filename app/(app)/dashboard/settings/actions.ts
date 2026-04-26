@@ -21,6 +21,7 @@ const GoalInput = z.object({
   budget_per_day_thb: z.number().int().nonnegative().max(100000).nullable(),
   pantry_ingredients: z.string().max(2000).nullable(),
   dietary_notes: z.string().max(1000).nullable(),
+  sports_focus: z.string().max(120).nullable(),
 });
 
 export type GoalFormValues = z.infer<typeof GoalInput>;

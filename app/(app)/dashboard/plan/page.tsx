@@ -3,9 +3,15 @@ import { formatInTimeZone } from "date-fns-tz";
 import { addDays } from "date-fns";
 import { MessageSquare, Sparkles } from "lucide-react";
 import { getSession } from "@/lib/auth";
-import { getDailyPlansBetween, getDailyPlan } from "@/lib/db/queries";
+import {
+  getActivePendingPlans,
+  getDailyPlansBetween,
+  getDailyPlan,
+  getUser,
+} from "@/lib/db/queries";
 import { PlanEditor } from "@/components/dashboard/plan-editor";
 import { PlanRangeView } from "@/components/dashboard/plan-range-view";
+import { PendingPlanBanner } from "@/components/dashboard/pending-plan-banner";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -81,11 +87,14 @@ export default async function PlanPage({
 
   const monthEnd = formatInTimeZone(addDays(now, 31), TZ, "yyyy-MM-dd");
 
-  const [plans, selectedPlan, tomorrowPlan] = await Promise.all([
+  const [plans, selectedPlan, tomorrowPlan, pendingPlans, user] = await Promise.all([
     getDailyPlansBetween(userId, today, monthEnd).catch(() => []),
     getDailyPlan(userId, requestedDate).catch(() => null),
     getDailyPlan(userId, tomorrow).catch(() => null),
+    getActivePendingPlans(userId).catch(() => []),
+    getUser(userId).catch(() => null),
   ]);
+  const goalKcal = user?.goal_kcal ?? null;
 
   const plansByDate = new Map<string, DailyPlan>(
     plans.map((p) => [p.date as string, p as DailyPlan]),
@@ -108,6 +117,14 @@ export default async function PlanPage({
           วางทีละวัน, ทั้งสัปดาห์, หรือทั้งเดือน — โค้ชช่วยตามจังหวะที่คุณต้องการ
         </p>
       </header>
+
+      {pendingPlans.length > 0 && (
+        <div className="space-y-3">
+          {pendingPlans.map((p) => (
+            <PendingPlanBanner key={p.id} pending={p} />
+          ))}
+        </div>
+      )}
 
       <Card className="bg-muted/30">
         <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -173,7 +190,8 @@ export default async function PlanPage({
             days={weekDays}
             layout="week"
             selectedDate={requestedDate}
-            bulkPrompt="ช่วยวางแผน 7 วันถัดไปให้หน่อย — workout split + เมนูทั้งวัน เรียก update_plan ทีละวัน และคำนึงถึง goal kcal, ของในครัว, งบประมาณ"
+            goalKcal={goalKcal}
+            bulkPrompt="ช่วยวางแผน 7 วันถัดไปให้หน่อย — workout split + เมนูทั้งวัน เรียก propose_plan_bulk รอบเดียว (จะเป็น draft รอ approve) คำนึงถึง goal kcal, ของในครัว, งบประมาณ"
           />
           {(requestedDate !== today || sp.date) && (
             <PlanEditor
@@ -190,7 +208,8 @@ export default async function PlanPage({
             days={monthDays}
             layout="month"
             selectedDate={requestedDate}
-            bulkPrompt="ช่วยวางแผน 1 เดือน — แบ่ง 4 สัปดาห์ progressive (W1 base, W2 build, W3 push, W4 deload). เรียก update_plan ทีละวันสำคัญ และเสนอ template สำหรับวันที่เหลือ"
+            goalKcal={goalKcal}
+            bulkPrompt="ช่วยวางแผน 1 เดือน — แบ่ง 4 สัปดาห์ progressive (W1 base, W2 build, W3 push, W4 deload). เรียก propose_plan_bulk เป็น draft รอ approve. เก็บเป้าหมาย structural (เช่น 'squat +5kg ภายในสิ้นเดือน') ใน update_memory ด้วย key 'goal_month_YYYYMM_<slug>'"
           />
           {sp.date && (
             <PlanEditor

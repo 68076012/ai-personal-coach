@@ -4,7 +4,7 @@ import { formatInTimeZone } from "date-fns-tz";
 import { verifyCronAuth } from "@/lib/cron-auth";
 import { runAgent, TZ } from "@/lib/llm/runtime";
 import { MEAL_DESIGNER_PROMPT, TRAINER_PROMPT } from "@/lib/llm/prompts";
-import { getDailyPlan } from "@/lib/db/queries";
+import { getDailyPlan, pruneExpiredAgentMemory } from "@/lib/db/queries";
 import type { UserId } from "@/lib/db/schema";
 
 export const runtime = "nodejs";
@@ -20,6 +20,8 @@ export async function GET(req: Request) {
 
   const tomorrow = formatInTimeZone(addDays(new Date(), 1), TZ, "yyyy-MM-dd");
   const tomorrowDow = formatInTimeZone(addDays(new Date(), 1), TZ, "EEEE");
+
+  const pruned = await pruneExpiredAgentMemory().catch(() => 0);
 
   const results = await Promise.allSettled(
     USERS.map(async (userId) => {
@@ -61,6 +63,7 @@ export async function GET(req: Request) {
   return NextResponse.json({
     ok: true,
     date: tomorrow,
+    pruned_memory_rows: pruned,
     results: results.map((r, i) =>
       r.status === "fulfilled"
         ? { user: USERS[i], ok: true, ...r.value }
