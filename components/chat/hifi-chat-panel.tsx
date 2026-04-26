@@ -24,6 +24,69 @@ const MODEL_ORDER: ModelChoice[] = ["auto", "pro", "flash", "flash-lite", "kimi"
 
 const MODEL_STORAGE_KEY = "chat:model";
 
+// Optimistic in-flight tracking. When the user sends a message, we stash it
+// here BEFORE the fetch starts so the bubble survives page refresh / tab
+// close / mid-flight reload. The server-side conversations write happens a
+// few hundred ms later inside runPlanSynthesis, so a fast refresh would
+// otherwise see no record yet and lose the user's question.
+const IN_FLIGHT_KEY = "chat:in-flight";
+const IN_FLIGHT_TTL_MS = 5 * 60 * 1000;
+
+interface InFlightEntry {
+  message: string;
+  ts: number;
+  id: string;
+}
+
+function readInFlight(): InFlightEntry | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(IN_FLIGHT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<InFlightEntry>;
+    if (
+      typeof parsed.message !== "string" ||
+      typeof parsed.ts !== "number" ||
+      typeof parsed.id !== "string"
+    ) {
+      return null;
+    }
+    if (Date.now() - parsed.ts > IN_FLIGHT_TTL_MS) {
+      window.localStorage.removeItem(IN_FLIGHT_KEY);
+      return null;
+    }
+    return parsed as InFlightEntry;
+  } catch {
+    return null;
+  }
+}
+
+function writeInFlight(message: string): InFlightEntry {
+  const entry: InFlightEntry = {
+    message,
+    ts: Date.now(),
+    id: crypto.randomUUID(),
+  };
+  if (typeof window !== "undefined") {
+    try {
+      window.localStorage.setItem(IN_FLIGHT_KEY, JSON.stringify(entry));
+    } catch {
+      // Quota exceeded etc. — tolerate silently; optimistic UX is best-effort.
+    }
+  }
+  return entry;
+}
+
+function clearInFlight() {
+  if (typeof window !== "undefined") {
+    try {
+      window.localStorage.removeItem(IN_FLIGHT_KEY);
+    } catch {
+      // ignore
+    }
+  }
+}
+
 export interface HiFiChatMessageData {
   id: string;
   role: "user" | "assistant";
@@ -63,6 +126,72 @@ export function HiFiChatPanel({
     if (saved && (MODEL_ORDER as string[]).includes(saved)) {
       setModel(saved as ModelChoice);
     }
+  }, []);
+
+  // Restore optimistic in-flight state on mount. If the user sent a message
+  // and refreshed/closed the tab before the response arrived, surface their
+  // bubble + a pending placeholder so the chat doesn't look like it
+  // forgot. Server-side persistence is the authoritative source — we
+  // reconcile against initialMessages so we don't double-render.
+  useEffect(() => {
+    const inFlight = readInFlight();
+    if (!inFlight) return;
+    // Did initialMessages already include this user message? Walk from the
+    // end (most recent) and look for content match.
+    const matchIndex = (() => {
+      for (let i = initialMessages.length - 1; i >= 0; i--) {
+        const m = initialMessages[i];
+        if (m.role === "user" && m.content === inFlight.message) return i;
+      }
+      return -1;
+    })();
+    if (matchIndex !== -1) {
+      // User message is on the server. Is there an assistant reply after it?
+      const hasAssistantAfter = initialMessages
+        .slice(matchIndex + 1)
+        .some((m) => m.role === "assistant" && !m.pending);
+      if (hasAssistantAfter) {
+        // Round-trip is done; clear the optimistic marker.
+        clearInFlight();
+        return;
+      }
+      // Server has the user msg but no reply yet. The server-side render
+      // already appends a pending placeholder when this state is fresh —
+      // do nothing here, avoid double bubble.
+      return;
+    }
+    // User msg isn't in the server data yet (refreshed before logTurn
+    // committed). Append optimistic user bubble + pending placeholder.
+    setMessages((m) => [
+      ...m,
+      {
+        id: `optim-user-${inFlight.id}`,
+        role: "user",
+        content: inFlight.message,
+      },
+      {
+        id: `optim-pending-${inFlight.id}`,
+        role: "assistant",
+        content: "",
+        pending: true,
+        agent: "orchestrator",
+      },
+    ]);
+    // Best-effort: poll for the reply landing in conversations every 4s
+    // by re-fetching server state. Stops once the user message in the
+    // initial payload (after refresh) flips the matchIndex branch above.
+    const interval = window.setInterval(() => {
+      const stillInFlight = readInFlight();
+      if (!stillInFlight || stillInFlight.id !== inFlight.id) {
+        window.clearInterval(interval);
+        return;
+      }
+      router.refresh();
+    }, 4000);
+    return () => window.clearInterval(interval);
+    // initialMessages is intentionally captured at mount — a fresh page
+    // load creates a new HiFiChatPanel mount with fresh initialMessages.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Close menu when clicking outside.
@@ -118,6 +247,9 @@ export function HiFiChatPanel({
     };
     setMessages((m) => [...m, userMsg, placeholder]);
     setInput("");
+    // Persist optimistic state so a mid-flight refresh / tab close still
+    // surfaces the bubble + spinner on remount.
+    writeInFlight(text);
 
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -169,12 +301,18 @@ export function HiFiChatPanel({
           return out;
         });
         router.refresh();
+        // Round-trip succeeded — release the optimistic marker.
+        clearInFlight();
       } catch (err) {
         const aborted = (err as { name?: string }).name === "AbortError";
         if (!aborted) {
           const errMsg = err instanceof Error ? err.message : String(err);
           toast.error(errMsg);
         }
+        // On error or explicit abort, drop the optimistic state. The server
+        // may have already persisted the user message via runPlanSynthesis;
+        // if so, it'll show on next refresh without the optimistic bubble.
+        clearInFlight();
         setMessages((m) => m.filter((x) => x.id !== placeholderId));
       } finally {
         abortRef.current = null;
