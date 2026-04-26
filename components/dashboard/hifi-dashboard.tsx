@@ -22,7 +22,6 @@ import {
   X,
 } from "lucide-react";
 import { deleteLogEntry, repeatMealLog, restoreLogEntry } from "@/app/(app)/dashboard/actions";
-import { togglePlanItemDoneAction } from "@/app/(app)/dashboard/plan/actions";
 import { HiFiCard, Chip, Bar, BigNum, AppBar, HiFiButton } from "@/components/hifi";
 import { LogMealSheet } from "@/components/dashboard/log-meal-sheet";
 import { LogWeightSheet } from "@/components/dashboard/log-weight-sheet";
@@ -369,12 +368,9 @@ export function HiFiDashboard({
 
 function PlanPreviewItem({
   kind,
-  index,
   name,
   meta,
-  done: initialDone,
-  date,
-  lang,
+  done,
 }: {
   kind: "meal" | "workout";
   index: number;
@@ -384,33 +380,14 @@ function PlanPreviewItem({
   date: string;
   lang: Lang;
 }) {
-  // Optimistic local state: flip the check immediately, write through in
-  // the background. Revert on server error.
-  const [done, setDone] = React.useState(initialDone);
-  const [pending, startTransition] = useTransition();
-
-  function toggle() {
-    if (pending) return;
-    const next = !done;
-    setDone(next);
-    startTransition(async () => {
-      try {
-        await togglePlanItemDoneAction({ date, kind, index, done: next });
-      } catch (err) {
-        setDone(!next);
-        toast.error(err instanceof Error ? err.message : "Update failed");
-      }
-    });
-  }
-
+  // Read-only mirror — Plan page is the single editing surface for
+  // ticking items off. Same daily_plans.completion column, so checks
+  // applied on /plan show up here on next render.
   return (
-    <button
-      type="button"
-      onClick={toggle}
-      disabled={pending}
+    <div
       className={cn(
         "w-full p-3 flex items-center gap-3 rounded-[var(--r-lg)] border bg-[var(--surface)]",
-        "border-[var(--line)] active:scale-[0.99] transition-all text-left",
+        "border-[var(--line)]",
         done && "opacity-60",
       )}
     >
@@ -442,7 +419,7 @@ function PlanPreviewItem({
       ) : (
         <Circle className="size-5 text-[var(--ink-4)] shrink-0" />
       )}
-    </button>
+    </div>
   );
 }
 // suppress unused

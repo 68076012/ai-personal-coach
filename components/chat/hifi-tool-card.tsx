@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { toast } from "sonner";
 import {
@@ -85,6 +86,7 @@ export function HiFiToolCard({ event, lang }: CardProps) {
 // propose_plan_bulk — the heavy one. Shows expandable day-by-day + Apply/Reject.
 // ============================================================================
 function ProposePlanBulkCard({ event, lang }: CardProps) {
+  const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [pending, startTransition] = useTransition();
   const [decision, setDecision] = React.useState<"approved" | "rejected" | null>(null);
@@ -111,6 +113,10 @@ function ProposePlanBulkCard({ event, lang }: CardProps) {
           lang === "th" ? `Approved — เขียน ${r.applied} วัน` : `Approved — ${r.applied} days written`,
         );
         setDecision("approved");
+        // Refresh the chat page's RSC payload so other surfaces (the
+        // dashboard's Today plan + Plan page) re-render with the freshly
+        // applied daily_plans rows next time the user navigates to them.
+        router.refresh();
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Approve failed");
       }
@@ -123,6 +129,7 @@ function ProposePlanBulkCard({ event, lang }: CardProps) {
         await rejectPendingPlan({ id: pendingId });
         toast.success(lang === "th" ? "ปฏิเสธแผนแล้ว" : "Rejected");
         setDecision("rejected");
+        router.refresh();
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Reject failed");
       }

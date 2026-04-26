@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { useRouter } from "next/navigation";
 import {
   Check,
   Circle,
@@ -16,7 +17,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { savePlan, togglePlanItemDoneAction } from "@/app/(app)/dashboard/plan/actions";
+import {
+  deletePlanForDate,
+  savePlan,
+  togglePlanItemDoneAction,
+} from "@/app/(app)/dashboard/plan/actions";
 import { cn } from "@/lib/utils";
 import {
   asMealArray,
@@ -53,6 +58,7 @@ function num(v: number | null | undefined): string {
 
 export function PlanEditor({ date, label, plan, chatPrompt, autoScroll }: Props) {
   const cardRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
 
   // When the user taps a day card on the week/month strip, the page
   // navigates with ?date=YYYY-MM-DD and renders this editor below the
@@ -166,6 +172,29 @@ export function PlanEditor({ date, label, plan, chatPrompt, autoScroll }: Props)
     });
   }
 
+  function onDeletePlan() {
+    if (
+      !confirm(
+        `ลบแผนของวัน ${date}? — undo ไม่ได้\n\nลบทั้ง workout, เมนู, notes, และเครื่องหมาย done. ใช้เมื่ออยากให้โค้ชวางใหม่.`,
+      )
+    )
+      return;
+    startTransition(async () => {
+      try {
+        const r = await deletePlanForDate({ date });
+        if (r.deleted) {
+          toast.success(`ลบแผนวัน ${date} แล้ว`);
+        } else {
+          toast.success("ไม่มีแผนสำหรับวันนั้นอยู่แล้ว");
+        }
+        // Refresh so the editor re-mounts with empty state
+        router.refresh();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "ลบไม่สำเร็จ");
+      }
+    });
+  }
+
   return (
     <Card ref={cardRef}>
       <CardHeader className="pb-3">
@@ -174,14 +203,26 @@ export function PlanEditor({ date, label, plan, chatPrompt, autoScroll }: Props)
             {label}
             <span className="ml-2 text-xs font-normal text-muted-foreground">{date}</span>
           </CardTitle>
-          <Button variant="ghost" size="sm" asChild>
-            <Link
-              href={`/dashboard/chat?draft=${encodeURIComponent(chatPrompt)}`}
-              title="ให้โค้ชช่วยวางแผน"
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="sm" asChild>
+              <Link
+                href={`/dashboard/chat?draft=${encodeURIComponent(chatPrompt)}`}
+                title="ให้โค้ชช่วยวางแผน"
+              >
+                <MessageSquare className="size-4" /> ให้โค้ชช่วยวาง
+              </Link>
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onDeletePlan}
+              disabled={pending}
+              title="ลบแผนของวันนี้"
+              className="text-muted-foreground hover:text-destructive"
             >
-              <MessageSquare className="size-4" /> ให้โค้ชช่วยวาง
-            </Link>
-          </Button>
+              <Trash2 className="size-4" /> ลบแผน
+            </Button>
+          </div>
         </div>
       </CardHeader>
 

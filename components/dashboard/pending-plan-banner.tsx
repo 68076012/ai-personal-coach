@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Check, ChevronDown, ChevronUp, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,7 @@ interface Props {
 }
 
 export function PendingPlanBanner({ pending }: Props) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pendingTx, startTransition] = useTransition();
 
@@ -34,6 +36,11 @@ export function PendingPlanBanner({ pending }: Props) {
       try {
         const r = await approvePendingPlan({ id: pending.id });
         toast.success(`Approve แล้ว — เขียน ${r.applied} วันเข้าตารางแผน`);
+        // Server action revalidates the path, but the client router still
+        // serves the cached RSC payload until refresh() runs. Without this,
+        // the user sees the old (banner-still-present, plan-not-applied)
+        // page until they manually reload.
+        router.refresh();
       } catch (err) {
         toast.error(
           err instanceof Error ? `Approve ไม่สำเร็จ: ${err.message}` : "Approve ไม่สำเร็จ",
@@ -47,6 +54,7 @@ export function PendingPlanBanner({ pending }: Props) {
       try {
         await rejectPendingPlan({ id: pending.id });
         toast.success("ปฏิเสธแผนแล้ว");
+        router.refresh();
       } catch (err) {
         toast.error(
           err instanceof Error ? `Reject ไม่สำเร็จ: ${err.message}` : "Reject ไม่สำเร็จ",

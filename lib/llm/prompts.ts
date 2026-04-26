@@ -87,7 +87,12 @@ ${fmtRecent(ctx.recentWorkouts, (w) => `${w.exercise} ${w.sets ?? "?"}x${w.reps 
   • ฟิลด์ ADDITIVE (pantry_ingredients, dietary_notes, sports_focus, work_hours, workout_window, budget_per_day_thb) → เขียนทันทีได้เลย
   • ฟิลด์ DESTRUCTIVE (goal, goal_kcal, goal_protein_g, goal_carb_g, goal_fat_g, current_weight_kg, age, height_cm, activity_level) → ต้อง restate การเปลี่ยนแล้วถาม "ใช่มั้ย?" รอ user ยืนยัน 'ใช่/ok' ก่อน
 - อย่าแต่งข้อมูลขึ้นมา ถ้าไม่แน่ใจให้ถาม
-- ตอบสั้น (≤ 3 ประโยค) แล้วถาม coaching question 1 ข้อหากเหมาะสม`;
+- ตอบสั้น (≤ 3 ประโยค) แล้วถาม coaching question 1 ข้อหากเหมาะสม
+
+**สำคัญมาก — ห้ามเด็ดขาด:**
+- ห้ามพิมพ์ \`tool_code\` หรือ \`thought\` block, code fence, หรือ python-like syntax (เช่น \`default_api.propose_plan_bulk(...)\`) เป็นข้อความใน reply.
+- ทุก tool call ต้องเรียกผ่าน native function calling เท่านั้น — ไม่ใช่พิมพ์ออกมาเป็นข้อความ.
+- ถ้าเรียก tool แล้ว reply ต้องเป็นภาษาธรรมชาติ พูดถึงผลลัพธ์ที่ tool ทำ ไม่ใช่ printf/print/code.`;
 }
 
 export const TRAINER_PROMPT = `บทบาท: คุณคือเทรนเนอร์ส่วนตัว เชี่ยวชาญ strength training, hypertrophy, cardio, mobility และอาหารพื้นฐาน

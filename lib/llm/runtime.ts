@@ -13,6 +13,7 @@ import type { AgentType, UserId } from "@/lib/db/schema";
 import { callGemini } from "./client";
 import { chooseModel, type AgentName, type Task } from "./models";
 import { commonHeader, type PromptContext } from "./prompts";
+import { sanitizeAssistantText } from "./sanitize";
 import {
   declarationsForAgent,
   executeTool,
@@ -170,6 +171,18 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
 
   if (!reply) {
     reply = "(โค้ชยังไม่ได้ตอบ — ลองส่งข้อความใหม่อีกครั้ง)";
+  }
+
+  // Defensive: strip any `tool_code` / `thought` blocks Gemini sometimes
+  // emits as text instead of using native function calling. The actual
+  // tool call is lost when this regression happens (the SDK never sees a
+  // functionCall part), but at least the chat bubble stays readable.
+  const sanitized = sanitizeAssistantText(reply);
+  reply = sanitized.cleaned || reply;
+  if (sanitized.hadToolCodeText) {
+    console.warn(
+      `[runtime] agent=${input.agent} emitted tool_code text — actual tool call was dropped by Gemini. Cleaned the bubble; user may need to ask again.`,
+    );
   }
 
   if (input.persistConversation) {
