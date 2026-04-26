@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import { formatInTimeZone } from "date-fns-tz";
 import { getSession } from "@/lib/auth";
 import { db, schema } from "@/lib/db/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AppBar, HiFiCard, Bar } from "@/components/hifi";
 import { DAILY_CALL_CAP, type AgentName } from "@/lib/llm/models";
 import { declarationsForAgent } from "@/lib/llm/tools";
 
@@ -88,97 +88,92 @@ export default async function AdminPage() {
   );
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-6 space-y-4">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Admin</h1>
-        <p className="text-sm text-muted-foreground">วันนี้: {today}</p>
-      </header>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base font-semibold">Gemini API วันนี้</CardTitle>
-        </CardHeader>
-        <CardContent>
+    <>
+      <AppBar
+        eyebrow={`วันนี้: ${today}`}
+        title="Admin"
+      />
+      <div className="mx-auto w-full max-w-3xl px-4 pb-8 space-y-3">
+        {/* Quota / API usage with progress bars */}
+        <HiFiCard className="p-4 space-y-3">
+          <div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--ink-3)]">
+            LLM API · วันนี้
+          </div>
           {usage.length === 0 ? (
-            <p className="text-sm text-muted-foreground">ยังไม่มีการเรียก</p>
+            <p className="text-sm text-[var(--ink-3)]">ยังไม่มีการเรียก</p>
           ) : (
-            <table className="w-full text-sm">
-              <thead className="text-xs text-muted-foreground">
-                <tr>
-                  <th className="py-1 text-left">Model</th>
-                  <th className="py-1 text-right">Calls</th>
-                  <th className="py-1 text-right">Errors</th>
-                  <th className="py-1 text-right">In/Out tokens</th>
-                </tr>
-              </thead>
-              <tbody>
-                {usage.map((u) => {
-                  const tier = u.model.includes("kimi") || u.model.includes("moonshot")
-                    ? "kimi"
-                    : u.model.includes("pro")
-                      ? "pro"
-                      : u.model.includes("lite")
-                        ? "flash-lite"
-                        : "flash";
-                  const cap = DAILY_CALL_CAP[tier as keyof typeof DAILY_CALL_CAP];
-                  const pct = cap ? Math.round((u.total / cap) * 100) : null;
-                  return (
-                    <tr key={u.model} className="border-t">
-                      <td className="py-1.5 font-mono text-xs">{u.model}</td>
-                      <td className="py-1.5 text-right tabular-nums">
-                        {u.total}
-                        {pct !== null && (
-                          <span className="ml-1 text-xs text-muted-foreground">
-                            ({pct}% of {cap})
-                          </span>
+            <div className="space-y-3">
+              {usage.map((u) => {
+                const tier = u.model.includes("kimi") || u.model.includes("moonshot")
+                  ? "kimi"
+                  : u.model.includes("pro")
+                    ? "pro"
+                    : u.model.includes("lite")
+                      ? "flash-lite"
+                      : "flash";
+                const cap = DAILY_CALL_CAP[tier as keyof typeof DAILY_CALL_CAP];
+                const pct = cap ? Math.round((u.total / cap) * 100) : null;
+                const barColor =
+                  pct !== null && pct >= 80 ? "coral" : pct !== null && pct >= 50 ? "sun" : "leaf";
+                return (
+                  <div key={u.model} className="space-y-1.5">
+                    <div className="flex items-baseline justify-between text-sm">
+                      <span className="font-mono text-xs text-[var(--ink-2)]">{u.model}</span>
+                      <span className="tabular text-xs text-[var(--ink-3)]">
+                        <b className="text-[var(--ink)] font-semibold">{u.total}</b>
+                        {cap && ` / ${cap}`}
+                        {u.errors > 0 && (
+                          <span className="ml-1.5 text-[var(--coral)]">· {u.errors} err</span>
                         )}
-                      </td>
-                      <td className="py-1.5 text-right tabular-nums">
-                        <span className={u.errors > 0 ? "text-rose-600" : ""}>
-                          {u.errors}
-                        </span>
-                      </td>
-                      <td className="py-1.5 text-right tabular-nums text-xs">
-                        {u.inputTokens.toLocaleString()} /{" "}
-                        {u.outputTokens.toLocaleString()}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                      </span>
+                    </div>
+                    {cap && <Bar value={u.total} max={cap} color={barColor} />}
+                    <div className="text-[10px] text-[var(--ink-3)] tabular">
+                      tokens {u.inputTokens.toLocaleString()} in /{" "}
+                      {u.outputTokens.toLocaleString()} out
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           )}
-        </CardContent>
-      </Card>
+        </HiFiCard>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base font-semibold">Agents</CardTitle>
-          <p className="text-xs text-muted-foreground">
-            Read-only — แสดง agent ทั้งหมดในระบบ พร้อม tools และจำนวน call วันนี้
-          </p>
-        </CardHeader>
-        <CardContent>
+        {/* Agents */}
+        <HiFiCard className="p-4 space-y-3">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--ink-3)]">
+              Agents
+            </div>
+            <p className="text-xs text-[var(--ink-3)] mt-1">
+              Read-only — agent ทั้งหมดในระบบ พร้อม tools และ call วันนี้
+            </p>
+          </div>
           <ul className="space-y-2">
             {agentRows.map((a) => (
-              <li key={a.name} className="rounded-md border p-3">
+              <li
+                key={a.name}
+                className="rounded-[12px] border border-[var(--line)] bg-[var(--surface-2)] p-3"
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex items-baseline gap-2">
-                      <span className="text-sm font-semibold">{a.label}</span>
-                      <span className="font-mono text-xs text-muted-foreground">{a.name}</span>
+                      <span className="text-sm font-semibold text-[var(--ink)]">{a.label}</span>
+                      <span className="font-mono text-[10px] text-[var(--ink-3)]">{a.name}</span>
                     </div>
-                    <p className="mt-0.5 text-xs text-muted-foreground">{a.description}</p>
+                    <p className="mt-0.5 text-xs text-[var(--ink-3)]">{a.description}</p>
                   </div>
                   <div className="shrink-0 text-right text-xs">
-                    <div className="tabular-nums">
-                      <span className="font-medium">{a.calls}</span>
-                      <span className="text-muted-foreground"> calls</span>
+                    <div className="tabular">
+                      <span className="font-semibold text-[var(--ink)]">{a.calls}</span>
+                      <span className="text-[var(--ink-3)]"> calls</span>
                       {a.errors > 0 && (
-                        <span className="ml-1 text-rose-600">· {a.errors} err</span>
+                        <span className="ml-1 text-[var(--coral)]">· {a.errors} err</span>
                       )}
                     </div>
-                    <div className="font-mono text-[10px] text-muted-foreground">{a.defaultTier}</div>
+                    <div className="font-mono text-[10px] text-[var(--ink-3)] mt-0.5">
+                      {a.defaultTier}
+                    </div>
                   </div>
                 </div>
                 {a.tools.length > 0 && (
@@ -186,7 +181,7 @@ export default async function AdminPage() {
                     {a.tools.map((t) => (
                       <span
                         key={t}
-                        className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]"
+                        className="rounded-md bg-[var(--surface)] border border-[var(--line)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--ink-2)]"
                       >
                         {t}
                       </span>
@@ -196,24 +191,28 @@ export default async function AdminPage() {
               </li>
             ))}
           </ul>
-        </CardContent>
-      </Card>
+        </HiFiCard>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base font-semibold">DB row counts</CardTitle>
-        </CardHeader>
-        <CardContent>
+        {/* DB row counts */}
+        <HiFiCard className="p-4 space-y-3">
+          <div className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--ink-3)]">
+            DB row counts
+          </div>
           <ul className="grid grid-cols-2 gap-2 text-sm">
             {counts.map((c) => (
-              <li key={c.name} className="flex justify-between rounded-md border px-2 py-1.5">
-                <span className="font-mono text-xs">{c.name}</span>
-                <span className="tabular-nums">{c.count >= 0 ? c.count : "—"}</span>
+              <li
+                key={c.name}
+                className="flex items-baseline justify-between rounded-[10px] border border-[var(--line)] bg-[var(--surface-2)] px-2.5 py-1.5"
+              >
+                <span className="font-mono text-[11px] text-[var(--ink-2)]">{c.name}</span>
+                <span className="tabular text-sm font-semibold text-[var(--ink)]">
+                  {c.count >= 0 ? c.count : "—"}
+                </span>
               </li>
             ))}
           </ul>
-        </CardContent>
-      </Card>
-    </main>
+        </HiFiCard>
+      </div>
+    </>
   );
 }
