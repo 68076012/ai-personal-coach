@@ -274,6 +274,95 @@ export async function upsertMorningReport(
   return r;
 }
 
+// ===== Couple snapshot =====
+// Fetches both users + the slice of activity data the Couple view shows in
+// one round. Returns null per-user if that user doesn't exist (we built
+// for 2 hardcoded users but this stays defensive).
+export async function getCoupleSnapshot(opts: {
+  todayDate: string; // "YYYY-MM-DD" (Asia/Bangkok)
+  weekStartDate: string; // YYYY-MM-DD, the Sunday or Monday of this week
+  weekEndDateExclusive: string; // YYYY-MM-DD, weekStart + 7
+}) {
+  const ids = ["garfield", "partner"] as const;
+
+  // Today macros per user
+  const today = await db
+    .select({
+      user_id: meals.user_id,
+      kcal: sql<number>`coalesce(sum(${meals.kcal}), 0)::int`,
+    })
+    .from(meals)
+    .where(
+      and(
+        sql`(((${meals.datetime}) AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date = ${opts.todayDate}`,
+        sql`${meals.user_id} IN ('garfield', 'partner')`,
+      ),
+    )
+    .groupBy(meals.user_id);
+
+  // Latest weight per user
+  const latestWeights = await db
+    .select({
+      user_id: daily_logs.user_id,
+      date: daily_logs.date,
+      weight_kg: daily_logs.weight_kg,
+    })
+    .from(daily_logs)
+    .where(
+      and(
+        sql`${daily_logs.user_id} IN ('garfield', 'partner')`,
+        sql`${daily_logs.weight_kg} IS NOT NULL`,
+      ),
+    )
+    .orderBy(desc(daily_logs.date));
+
+  // Workout days (distinct date) within week per user
+  const weekWorkoutDays = await db
+    .select({
+      user_id: workouts.user_id,
+      d: sql<string>`(((${workouts.datetime}) AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date`,
+    })
+    .from(workouts)
+    .where(
+      and(
+        sql`${workouts.user_id} IN ('garfield', 'partner')`,
+        sql`(((${workouts.datetime}) AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date >= ${opts.weekStartDate}::date`,
+        sql`(((${workouts.datetime}) AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date < ${opts.weekEndDateExclusive}::date`,
+      ),
+    )
+    .groupBy(
+      workouts.user_id,
+      sql`(((${workouts.datetime}) AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date`,
+    );
+
+  const userRows = await db
+    .select()
+    .from(users)
+    .where(sql`${users.id} IN ('garfield', 'partner')`);
+
+  const userById = new Map(userRows.map((u) => [u.id, u]));
+  const todayKcalById = new Map(today.map((r) => [r.user_id, r.kcal]));
+  const latestWeightById = new Map<string, { date: string; weight_kg: number }>();
+  for (const w of latestWeights) {
+    if (!latestWeightById.has(w.user_id) && w.weight_kg !== null) {
+      latestWeightById.set(w.user_id, { date: w.date, weight_kg: w.weight_kg });
+    }
+  }
+  const workoutDaysById = new Map<string, Set<string>>();
+  for (const w of weekWorkoutDays) {
+    if (!workoutDaysById.has(w.user_id)) workoutDaysById.set(w.user_id, new Set());
+    workoutDaysById.get(w.user_id)!.add(w.d);
+  }
+
+  return ids.map((id) => ({
+    id,
+    user: userById.get(id) ?? null,
+    today_kcal: todayKcalById.get(id) ?? 0,
+    latest_weight: latestWeightById.get(id) ?? null,
+    week_workout_days: Array.from(workoutDaysById.get(id) ?? []).sort(),
+  }));
+}
+
 // ===== Account reset =====
 // Clears all activity data for one user. Keeps the users row (profile/goals)
 // and llm_calls (telemetry / cost tracking). Set { wipeUserRow: true } to
