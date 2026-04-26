@@ -3,7 +3,7 @@ import { addDays } from "date-fns";
 import { callGemini } from "./client";
 import { commonHeader } from "./prompts";
 import { buildPromptContext, TZ } from "./runtime";
-import { executeTool } from "./tools";
+import { executeTool, logTurn } from "./tools";
 import {
   MealItemSchema,
   PlanSchema,
@@ -310,6 +310,44 @@ export async function runPlanSynthesis(
     throw new Error(`propose_plan_bulk_failed: ${toolResult.error ?? "unknown"}`);
   }
   const data = toolResult.data as { pending_id: string; dates: string[] };
+
+  // Persist the synthesis turn to conversations so chat history survives
+  // page navigation / tab close. runAgent does this automatically; we
+  // bypass it on the synthesis path so we have to log here directly. Tool
+  // events are attached to the assistant row (single-row pattern, unlike
+  // runAgent's separate "tool" row) so the chat page can re-render the
+  // Apply/Reject card on reload by reading conversations.tool_calls.
+  const persistedToolEvents = [
+    {
+      tool: "propose_plan_bulk",
+      args: { reason: reasonText, plans: plansForBulk },
+      result: {
+        ok: true,
+        data: {
+          pending_id: data.pending_id,
+          count: data.dates.length,
+          dates: data.dates,
+          status: "pending",
+          review_url: "/dashboard/plan",
+          note: "Plan saved as draft — user must approve at /dashboard/plan to apply.",
+        },
+      },
+    },
+  ];
+  try {
+    await logTurn(userId, "orchestrator", "user", message);
+    await logTurn(
+      userId,
+      "orchestrator",
+      "assistant",
+      summary,
+      persistedToolEvents,
+    );
+  } catch (err) {
+    // Logging failure shouldn't break the response — the pending plan is
+    // already in the DB and the user can still see it on /dashboard/plan.
+    console.warn("[plan-synthesis] logTurn failed:", err);
+  }
 
   return {
     reply: summary,
