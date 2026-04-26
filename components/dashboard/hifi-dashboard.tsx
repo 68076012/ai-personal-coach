@@ -11,6 +11,7 @@ import {
   ChevronRight,
   Dumbbell,
   Flame,
+  RotateCcw,
   Soup,
   Sparkles,
   Sun,
@@ -20,7 +21,7 @@ import {
   Circle,
   X,
 } from "lucide-react";
-import { deleteLogEntry, restoreLogEntry } from "@/app/(app)/dashboard/actions";
+import { deleteLogEntry, repeatMealLog, restoreLogEntry } from "@/app/(app)/dashboard/actions";
 import { HiFiCard, Chip, Bar, BigNum, AppBar, HiFiButton } from "@/components/hifi";
 import { LogMealSheet } from "@/components/dashboard/log-meal-sheet";
 import { LogWeightSheet } from "@/components/dashboard/log-weight-sheet";
@@ -52,6 +53,7 @@ interface Props {
   plan: DailyPlan | null;
   report: MorningReport | null;
   streakDays: number;
+  repeatCandidate: Meal | null;
 }
 
 export function HiFiDashboard({
@@ -65,6 +67,7 @@ export function HiFiDashboard({
   plan,
   report,
   streakDays,
+  repeatCandidate,
 }: Props) {
   // Date eyebrow
   const d = new Date(todayDate + "T00:00:00+07:00");
@@ -197,6 +200,13 @@ export function HiFiDashboard({
             </div>
           </div>
         </section>
+
+        {/* Repeat-yesterday suggestion strip — only shows when there's a
+            yesterday meal of the current-hour's meal_type AND the user
+            hasn't already logged that slot today. One-tap copy. */}
+        {repeatCandidate && (
+          <RepeatStrip candidate={repeatCandidate} lang={lang} />
+        )}
 
         {/* Quick-log tiles. Log meal opens a BottomSheet form (skip the
             chat round-trip when macros are known); workout + weight
@@ -340,6 +350,60 @@ export function HiFiDashboard({
         initialWeight={user.current_weight_kg ?? null}
       />
     </>
+  );
+}
+
+function RepeatStrip({ candidate, lang }: { candidate: Meal; lang: Lang }) {
+  const [pending, startTransition] = useTransition();
+  const [done, setDone] = React.useState(false);
+
+  function onTap() {
+    if (pending) return;
+    startTransition(async () => {
+      try {
+        const r = await repeatMealLog({ source_id: candidate.id });
+        setDone(true);
+        toast.success(
+          lang === "th"
+            ? `เพิ่ม ${candidate.food_name} แล้ว — ${r.kcal} ${t("kcal_short", lang)}`
+            : `Logged ${candidate.food_name} — ${r.kcal} ${t("kcal_short", lang)}`,
+        );
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Repeat failed");
+      }
+    });
+  }
+
+  if (done) return null;
+
+  const mealLabel = t(candidate.meal_type as "breakfast" | "lunch" | "dinner" | "snack", lang);
+
+  return (
+    <button
+      type="button"
+      onClick={onTap}
+      disabled={pending}
+      className={cn(
+        "w-full flex items-center gap-3 p-3 rounded-[14px] text-left transition-colors disabled:opacity-60",
+        "border border-[var(--accent)]/30 bg-[var(--accent-soft)] active:scale-[0.99]",
+      )}
+    >
+      <div className="size-9 rounded-[10px] bg-[var(--accent)] text-white inline-flex items-center justify-center shrink-0">
+        <RotateCcw className="size-4" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--accent)]">
+          {lang === "th" ? `ซ้ำ${mealLabel}เมื่อวาน` : `Repeat yesterday's ${mealLabel.toLowerCase()}`}
+        </div>
+        <div className="text-sm font-semibold text-[var(--ink)] truncate">
+          {candidate.food_name}
+        </div>
+        <div className="text-xs text-[var(--ink-3)] tabular">
+          {candidate.kcal} {t("kcal_short", lang)} · P{Math.round(candidate.protein_g)}g
+        </div>
+      </div>
+      <ChevronRight className="size-4 text-[var(--accent)] shrink-0" />
+    </button>
   );
 }
 

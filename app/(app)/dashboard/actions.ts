@@ -12,6 +12,7 @@ import {
   updateUser,
   upsertDailyLog,
 } from "@/lib/db/queries";
+import { and, eq } from "drizzle-orm";
 import { formatInTimeZone } from "date-fns-tz";
 import type { Meal, MealType, UserId, Workout } from "@/lib/db/schema";
 
@@ -84,6 +85,48 @@ export async function quickLogWeight(input: z.infer<typeof QuickLogWeightInput>)
   revalidatePath("/dashboard/progress");
   revalidatePath("/dashboard/couple");
   return { ok: true, weight_kg: parsed.data.weight_kg };
+}
+
+// "Repeat yesterday's <breakfast/lunch/dinner/snack>" — copy a known
+// meal entry from the user's history into a fresh row at "now". Server
+// fetches the source row by id (gated on user_id) so the client can't
+// inject macros that don't actually exist in the user's data.
+const RepeatMealInput = z.object({ source_id: z.string().uuid() });
+
+export async function repeatMealLog(input: z.infer<typeof RepeatMealInput>) {
+  const session = await getSession();
+  if (!session.userId) throw new Error("unauthenticated");
+  const parsed = RepeatMealInput.safeParse(input);
+  if (!parsed.success) throw new Error("bad_input");
+  const userId = session.userId as UserId;
+
+  const [src] = await db
+    .select()
+    .from(schema.meals)
+    .where(
+      and(
+        eq(schema.meals.id, parsed.data.source_id),
+        eq(schema.meals.user_id, userId),
+      ),
+    )
+    .limit(1);
+  if (!src) throw new Error("not_found");
+
+  const row = await insertMeal({
+    user_id: userId,
+    datetime: new Date(),
+    meal_type: src.meal_type as MealType,
+    food_name: src.food_name,
+    kcal: src.kcal,
+    protein_g: src.protein_g,
+    carb_g: src.carb_g,
+    fat_g: src.fat_g,
+    confidence: src.confidence,
+    notes: "repeat",
+  });
+  bumpMealLibraryUsage(userId, src.food_name).catch(() => {});
+  revalidatePath("/dashboard");
+  return { ok: true, id: row.id, kcal: row.kcal };
 }
 
 // User-driven delete from the dashboard "Recent" list. Same write path
