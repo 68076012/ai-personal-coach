@@ -10,17 +10,31 @@ import { HiFiToolCard, type ToolEvent } from "./hifi-tool-card";
 import { type Lang, t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
-type ModelChoice = "auto" | "pro" | "flash" | "flash-lite" | "kimi";
+type ModelChoice =
+  | "auto"
+  | "pro"
+  | "flash"
+  | "flash-lite"
+  | "kimi"
+  | "kimi-fast";
 
 const MODEL_LABEL: Record<ModelChoice, string> = {
   auto: "Auto",
   pro: "Pro",
   flash: "Flash",
   "flash-lite": "Lite",
-  kimi: "Kimi",
+  kimi: "Kimi K2.6",
+  "kimi-fast": "Kimi Fast",
 };
 
-const MODEL_ORDER: ModelChoice[] = ["auto", "pro", "flash", "flash-lite", "kimi"];
+const MODEL_ORDER: ModelChoice[] = [
+  "auto",
+  "pro",
+  "flash",
+  "flash-lite",
+  "kimi",
+  "kimi-fast",
+];
 
 const MODEL_STORAGE_KEY = "chat:model";
 
@@ -83,6 +97,68 @@ function clearInFlight() {
       window.localStorage.removeItem(IN_FLIGHT_KEY);
     } catch {
       // ignore
+    }
+  }
+}
+
+// Bare-bones SSE event-stream parser. Reads the response body, splits on
+// blank-line boundaries, and dispatches to onEvent for each parsed event.
+// Server emits frames as `event: <name>\ndata: <json>\n\n`. We tolerate
+// comment frames (lines starting with ":") and ignore unrecognized fields.
+async function readSseStream(
+  res: Response,
+  onEvent: (event: string, data: unknown) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  if (!res.body) throw new Error("no response body");
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  // Make sure we drop the reader if the caller aborts mid-stream.
+  signal.addEventListener("abort", () => {
+    reader.cancel().catch(() => {});
+  });
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let sep: number;
+    // SSE separator is two consecutive newlines. Handle both \n\n and \r\n\r\n.
+    while (true) {
+      const idxN = buffer.indexOf("\n\n");
+      const idxR = buffer.indexOf("\r\n\r\n");
+      if (idxN === -1 && idxR === -1) break;
+      sep =
+        idxN === -1
+          ? idxR
+          : idxR === -1
+            ? idxN
+            : Math.min(idxN, idxR);
+      const sepLen = sep === idxR ? 4 : 2;
+      const block = buffer.slice(0, sep);
+      buffer = buffer.slice(sep + sepLen);
+      let eventName = "message";
+      const dataLines: string[] = [];
+      for (const rawLine of block.split(/\r?\n/)) {
+        if (!rawLine || rawLine.startsWith(":")) continue;
+        if (rawLine.startsWith("event:")) {
+          eventName = rawLine.slice(6).trim();
+        } else if (rawLine.startsWith("data:")) {
+          dataLines.push(rawLine.slice(5).trim());
+        }
+      }
+      let payload: unknown = null;
+      if (dataLines.length > 0) {
+        const joined = dataLines.join("\n");
+        try {
+          payload = JSON.parse(joined);
+        } catch {
+          payload = joined;
+        }
+      }
+      onEvent(eventName, payload);
     }
   }
 }
@@ -255,6 +331,17 @@ export function HiFiChatPanel({
     abortRef.current = ctrl;
 
     startTransition(async () => {
+      // Watchdog — if no SSE event lands for ~30s, assume the request silently
+      // died and abort. The server emits heartbeats every 5s while alive, so
+      // a 30s gap means something's definitely wrong.
+      let lastEventAt = Date.now();
+      const watchdogId = window.setInterval(() => {
+        if (Date.now() - lastEventAt > 30_000) {
+          window.clearInterval(watchdogId);
+          ctrl.abort(new DOMException("watchdog: no events for 30s", "WatchdogError"));
+        }
+      }, 5_000);
+
       try {
         const res = await fetch("/api/chat", {
           method: "POST",
@@ -262,20 +349,65 @@ export function HiFiChatPanel({
           body: JSON.stringify({ message: text, agent: defaultAgent, model }),
           signal: ctrl.signal,
         });
-        const json = await res.json();
-        if (!res.ok || !json.ok) {
-          throw new Error(json.message ?? json.error ?? "request failed");
+        if (!res.ok) {
+          // Pre-stream rejection — auth, validation, etc. Body is plain JSON.
+          const json = await res.json().catch(() => ({}));
+          throw new Error(
+            json.message ?? json.error ?? `request failed (${res.status})`,
+          );
         }
-        // Multi-agent dispatch: API returns { ok, replies: [{agent, reply,
-        // toolEvents}, ...] }. Replace the placeholder with the first reply
-        // and append the rest as fresh assistant bubbles below it.
-        const replies: Array<{
-          agent: AgentKey;
-          reply: string;
-          toolEvents: ToolEvent[];
-        }> = json.replies ?? (json.reply
-          ? [{ agent: json.agent, reply: json.reply, toolEvents: json.toolEvents ?? [] }]
-          : []);
+
+        type ResultPayload = {
+          replies?: Array<{
+            agent: AgentKey;
+            reply: string;
+            toolEvents: ToolEvent[];
+          }>;
+        };
+        type ErrorPayload = { kind?: string; message?: string };
+        const ref: {
+          resolved: boolean;
+          result: ResultPayload | null;
+          error: ErrorPayload | null;
+        } = { resolved: false, result: null, error: null };
+
+        await readSseStream(
+          res,
+          (event, data) => {
+            lastEventAt = Date.now();
+            if (event === "phase") {
+              const message =
+                (data as { message?: string } | null)?.message ?? "";
+              setMessages((m) =>
+                m.map((msg) =>
+                  msg.id === placeholderId
+                    ? { ...msg, content: message, pending: true }
+                    : msg,
+                ),
+              );
+            } else if (event === "result") {
+              ref.result = data as ResultPayload;
+              ref.resolved = true;
+            } else if (event === "error") {
+              ref.error = data as ErrorPayload;
+              ref.resolved = true;
+            }
+            // heartbeat events just refresh lastEventAt above.
+          },
+          ctrl.signal,
+        );
+
+        window.clearInterval(watchdogId);
+
+        if (ref.error) {
+          throw new Error(
+            ref.error.message ?? ref.error.kind ?? "request failed",
+          );
+        }
+        if (!ref.resolved || !ref.result) {
+          throw new Error("empty response");
+        }
+        const replies = ref.result.replies ?? [];
         if (replies.length === 0) {
           throw new Error("empty response");
         }
@@ -305,7 +437,12 @@ export function HiFiChatPanel({
         clearInFlight();
       } catch (err) {
         const aborted = (err as { name?: string }).name === "AbortError";
-        if (!aborted) {
+        const watchdog = (err as { name?: string }).name === "WatchdogError";
+        if (watchdog) {
+          toast.error(
+            "ไม่ได้ยินจาก server เกิน 30 วิ — น่าจะค้าง ลองส่งใหม่",
+          );
+        } else if (!aborted) {
           const errMsg = err instanceof Error ? err.message : String(err);
           toast.error(errMsg);
         }
@@ -315,6 +452,7 @@ export function HiFiChatPanel({
         clearInFlight();
         setMessages((m) => m.filter((x) => x.id !== placeholderId));
       } finally {
+        window.clearInterval(watchdogId);
         abortRef.current = null;
       }
     });

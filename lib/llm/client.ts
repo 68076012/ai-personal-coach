@@ -123,6 +123,7 @@ async function attemptCall(
   try {
     const res = isKimiTier(tier)
       ? await callKimi({
+          model: GEMINI_MODEL[tier],
           systemInstruction: params.systemInstruction,
           contents: params.contents,
           tools: params.tools,
