@@ -80,8 +80,9 @@ export default async function ChatPage({
     getLang(),
   ]);
 
-  const mapped: HiFiChatMessageData[] = rows
-    .filter((r) => VISIBLE_ROLES.has(r.role))
+  const visibleRows = rows.filter((r) => VISIBLE_ROLES.has(r.role));
+  const mapped: HiFiChatMessageData[] = visibleRows
+    .slice()
     .reverse()
     .map((r) => {
       // Synthesis path attaches tool_calls directly to the assistant row
@@ -102,7 +103,32 @@ export default async function ChatPage({
         toolEvents,
       };
     });
-  const initial = dedupMultiAgentUserMsgs(mapped);
+  let initial = dedupMultiAgentUserMsgs(mapped);
+
+  // If the most recent persisted row is a user message from the last
+  // 5 minutes, an LLM call is probably still in flight server-side
+  // (most commonly the synthesis path, which can take 15-30s; the
+  // window is generous so a slow cold-started Render container or a
+  // Kimi K2.6 reasoning round still shows the "..." indicator instead
+  // of looking abandoned).
+  const PENDING_WINDOW_MS = 5 * 60 * 1000;
+  const latestVisible = visibleRows[0];
+  if (
+    latestVisible &&
+    latestVisible.role === "user" &&
+    Date.now() - new Date(latestVisible.created_at).getTime() < PENDING_WINDOW_MS
+  ) {
+    initial = [
+      ...initial,
+      {
+        id: `pending-${latestVisible.id}`,
+        role: "assistant",
+        content: "",
+        pending: true,
+        agent: "orchestrator",
+      },
+    ];
+  }
 
   return (
     <>
