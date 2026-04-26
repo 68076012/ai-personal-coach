@@ -76,14 +76,21 @@ export async function POST(req: Request) {
     });
   }
 
-  try {
-    // Sequential dispatch — each agent runs against the same user message
-    // but with its own conversation history (filtered by agent_type).
-    // The user's message is logged separately under each agent_type, which
-    // is what the prior single-agent flow did too — keeps each specialist's
-    // context independent.
-    const replies: Array<{ agent: string; reply: string; toolEvents: unknown[] }> = [];
-    for (const agent of agents) {
+  console.log(
+    `[/api/chat] dispatching to ${agents.length} agent(s): ${agents.join(", ")}`,
+  );
+
+  // Resilient sequential dispatch — each agent runs against the same user
+  // message with its own conversation history (filtered by agent_type).
+  // If one agent fails, the others' replies still come back — the user
+  // gets partial answers instead of seeing the whole thing fail. Only
+  // when EVERY agent fails do we fall through to the LLMChainError /
+  // generic catch handlers below.
+  const replies: Array<{ agent: string; reply: string; toolEvents: unknown[] }> = [];
+  const failures: Array<{ agent: string; error: string; kind?: string }> = [];
+
+  for (const agent of agents) {
+    try {
       const result = await runAgent({
         userId: session.userId,
         agent,
@@ -97,47 +104,42 @@ export async function POST(req: Request) {
         reply: result.reply,
         toolEvents: result.toolEvents,
       });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const kind = err instanceof LLMChainError ? err.kind : undefined;
+      console.warn(`[/api/chat] agent=${agent} failed:`, errMsg);
+      failures.push({ agent, error: errMsg, kind });
     }
-    return NextResponse.json({ ok: true, replies });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error("[/api/chat]", err);
+  }
 
-    if (err instanceof LLMChainError) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: err.kind,
-          message: CHAIN_USER_MESSAGE[err.kind],
-          details: err.attempts,
-        },
-        { status: 429 },
-      );
-    }
+  if (replies.length > 0) {
+    return NextResponse.json({
+      ok: true,
+      replies,
+      ...(failures.length > 0 ? { partial_failures: failures } : {}),
+    });
+  }
 
-    if (/GOOGLE_API_KEY/.test(msg)) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "missing_api_key",
-          message: "ยังไม่ได้ตั้งค่า GOOGLE_API_KEY ใน .env.local",
-        },
-        { status: 503 },
-      );
-    }
-    if (/DATABASE_URL|ECONNREFUSED|getaddrinfo|connect ETIMEDOUT/i.test(msg)) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "db_unreachable",
-          message: "เชื่อมต่อฐานข้อมูลไม่ได้ — เช็ค DATABASE_URL ใน .env.local",
-        },
-        { status: 503 },
-      );
-    }
+  // Every agent failed. Synthesize an LLMChainError-shaped response so the
+  // existing client error path renders a meaningful message.
+  const firstFailure = failures[0];
+  if (firstFailure) {
+    const kind = (firstFailure.kind as LLMChainKind | undefined) ?? "all_failed";
     return NextResponse.json(
-      { ok: false, error: "internal", message: msg },
-      { status: 500 },
+      {
+        ok: false,
+        error: kind,
+        message: CHAIN_USER_MESSAGE[kind],
+        details: failures,
+      },
+      { status: 429 },
     );
   }
+
+  // Should be unreachable (agents.length === 0 would already have been
+  // caught by the routedNotice short-circuit), but keep a safety net.
+  return NextResponse.json(
+    { ok: false, error: "no_agents", message: "ไม่พบ agent ที่จะตอบ" },
+    { status: 500 },
+  );
 }
