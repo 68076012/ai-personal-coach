@@ -34,7 +34,13 @@ export function HiFiShell({
       className="flex min-h-screen flex-col bg-[var(--bg)]"
     >
       {appBar}
-      <main className="flex-1 overflow-y-auto">{children}</main>
+      {/* main is a flex column so pages can place a flex-1 scroll area
+          (chat) and have a sibling composer naturally sit at the bottom.
+          Pages whose content just flows still work — they stack as
+          normal flex items and main itself scrolls if content overflows. */}
+      <main className="flex-1 flex flex-col min-h-0 overflow-y-auto">
+        {children}
+      </main>
       {showTabBar && <TabBar labels={tabLabels} />}
     </div>
   );
