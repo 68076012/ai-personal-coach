@@ -3,12 +3,21 @@
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Trash2, Plus, MessageSquare, Dumbbell, UtensilsCrossed } from "lucide-react";
+import {
+  Check,
+  Circle,
+  Dumbbell,
+  MessageSquare,
+  Plus,
+  Trash2,
+  UtensilsCrossed,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { savePlan } from "@/app/(app)/dashboard/plan/actions";
+import { savePlan, togglePlanItemDoneAction } from "@/app/(app)/dashboard/plan/actions";
+import { cn } from "@/lib/utils";
 import {
   asMealArray,
   asWorkoutArray,
@@ -50,6 +59,40 @@ export function PlanEditor({ date, label, plan, chatPrompt }: Props) {
   );
   const [notes, setNotes] = useState(plan?.notes ?? "");
   const [pending, startTransition] = useTransition();
+
+  // Local mirror of daily_plans.completion so toggle is instant. Server
+  // is source-of-truth; we re-read on mount.
+  const initialCompletion = (plan?.completion as
+    | { workout_done?: number[]; meal_done?: number[] }
+    | null) ?? {};
+  const [workoutDone, setWorkoutDone] = useState<Set<number>>(
+    () => new Set(initialCompletion.workout_done ?? []),
+  );
+  const [mealDone, setMealDone] = useState<Set<number>>(
+    () => new Set(initialCompletion.meal_done ?? []),
+  );
+
+  function toggleDone(kind: "workout" | "meal", index: number) {
+    const setSet = kind === "workout" ? setWorkoutDone : setMealDone;
+    const current = kind === "workout" ? workoutDone : mealDone;
+    const next = !current.has(index);
+    setSet((prev) => {
+      const out = new Set(prev);
+      if (next) out.add(index);
+      else out.delete(index);
+      return out;
+    });
+    // Fire-and-forget; revert on error.
+    togglePlanItemDoneAction({ date, kind, index, done: next }).catch((err) => {
+      setSet((prev) => {
+        const out = new Set(prev);
+        if (next) out.delete(index);
+        else out.add(index);
+        return out;
+      });
+      toast.error(err instanceof Error ? err.message : "Update failed");
+    });
+  }
 
   const totals = useMemo(() => {
     return meals.reduce(
@@ -138,6 +181,8 @@ export function PlanEditor({ date, label, plan, chatPrompt }: Props) {
               <WorkoutRow
                 key={i}
                 value={w}
+                done={workoutDone.has(i)}
+                onToggleDone={() => toggleDone("workout", i)}
                 onChange={(patch) => updateWorkout(i, patch)}
                 onRemove={() => removeWorkout(i)}
               />
@@ -170,6 +215,8 @@ export function PlanEditor({ date, label, plan, chatPrompt }: Props) {
               <MealRow
                 key={i}
                 value={m}
+                done={mealDone.has(i)}
+                onToggleDone={() => toggleDone("meal", i)}
                 onChange={(patch) => updateMeal(i, patch)}
                 onRemove={() => removeMeal(i)}
               />
@@ -203,21 +250,26 @@ export function PlanEditor({ date, label, plan, chatPrompt }: Props) {
 
 function WorkoutRow({
   value,
+  done,
+  onToggleDone,
   onChange,
   onRemove,
 }: {
   value: WorkoutItem;
+  done: boolean;
+  onToggleDone: () => void;
   onChange: (patch: Partial<WorkoutItem>) => void;
   onRemove: () => void;
 }) {
   return (
-    <div className="rounded-md border p-2 space-y-2">
+    <div className={cn("rounded-md border p-2 space-y-2", done && "opacity-60")}>
       <div className="flex items-center gap-2">
+        <DoneCheckbox done={done} onClick={onToggleDone} />
         <Input
           placeholder="ชื่อท่า เช่น Squat"
           value={value.exercise}
           onChange={(e) => onChange({ exercise: e.target.value })}
-          className="flex-1"
+          className={cn("flex-1", done && "line-through")}
         />
         <Button
           variant="ghost"
@@ -264,16 +316,21 @@ function WorkoutRow({
 
 function MealRow({
   value,
+  done,
+  onToggleDone,
   onChange,
   onRemove,
 }: {
   value: MealItem;
+  done: boolean;
+  onToggleDone: () => void;
   onChange: (patch: Partial<MealItem>) => void;
   onRemove: () => void;
 }) {
   return (
-    <div className="rounded-md border p-2 space-y-2">
+    <div className={cn("rounded-md border p-2 space-y-2", done && "opacity-60")}>
       <div className="flex items-center gap-2">
+        <DoneCheckbox done={done} onClick={onToggleDone} />
         <select
           value={value.meal_type}
           onChange={(e) => onChange({ meal_type: e.target.value as MealType })}
@@ -289,7 +346,7 @@ function MealRow({
           placeholder="ชื่อเมนู เช่น ไข่ดาว 2 ฟอง + ข้าวกล้อง"
           value={value.name}
           onChange={(e) => onChange({ name: e.target.value })}
-          className="flex-1"
+          className={cn("flex-1", done && "line-through")}
         />
         <Button
           variant="ghost"
@@ -323,6 +380,34 @@ function MealRow({
         />
       </div>
     </div>
+  );
+}
+
+function DoneCheckbox({
+  done,
+  onClick,
+}: {
+  done: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={done ? "ทำเสร็จแล้ว — ยกเลิก" : "ทำเสร็จแล้ว"}
+      className={cn(
+        "size-5 rounded-full inline-flex items-center justify-center shrink-0 transition-colors",
+        done
+          ? "bg-emerald-500 text-white"
+          : "border border-input text-muted-foreground hover:border-foreground/40",
+      )}
+    >
+      {done ? (
+        <Check className="size-3" strokeWidth={3} />
+      ) : (
+        <Circle className="size-3 opacity-0" />
+      )}
+    </button>
   );
 }
 
