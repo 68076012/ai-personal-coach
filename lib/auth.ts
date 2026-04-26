@@ -44,7 +44,6 @@ export async function requireUserId(): Promise<UserId> {
 export const ALLOWED_USERS: { id: UserId }[] = [
   { id: "garfield" },
   { id: "partner" },
-  { id: "test" },
 ];
 
 export function isAllowedUser(userId: string): userId is UserId {

@@ -263,7 +263,7 @@ export interface PendingPlanDay {
   notes?: string | null;
 }
 
-export type UserId = "garfield" | "partner" | "test";
+export type UserId = "garfield" | "partner";
 export type AgentType =
   | "orchestrator"
   | "trainer"

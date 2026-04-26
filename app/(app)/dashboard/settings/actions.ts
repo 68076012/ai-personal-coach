@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { getSession } from "@/lib/auth";
-import { updateUser } from "@/lib/db/queries";
+import { resetUserData, updateUser } from "@/lib/db/queries";
 import type { UserId } from "@/lib/db/schema";
 
 const GoalInput = z.object({
@@ -38,4 +38,25 @@ export async function updateGoal(input: GoalFormValues) {
   revalidatePath("/dashboard/chat");
   revalidatePath("/dashboard/settings");
   return { ok: true };
+}
+
+const ResetAccountInput = z.object({
+  // Anti-fat-finger: caller passes the typed-in confirmation phrase.
+  // Server requires it to equal the literal "RESET" so a stray click
+  // can't fire the action.
+  confirmation: z.literal("RESET"),
+});
+
+export async function resetAccount(input: z.infer<typeof ResetAccountInput>) {
+  const session = await getSession();
+  if (!session.userId) throw new Error("unauthenticated");
+  const parsed = ResetAccountInput.safeParse(input);
+  if (!parsed.success) throw new Error("confirmation_required");
+  const counts = await resetUserData(session.userId as UserId);
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/chat");
+  revalidatePath("/dashboard/plan");
+  revalidatePath("/dashboard/progress");
+  revalidatePath("/dashboard/settings");
+  return { ok: true, deleted: counts };
 }

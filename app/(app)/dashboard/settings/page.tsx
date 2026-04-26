@@ -1,6 +1,7 @@
 import { getSession } from "@/lib/auth";
 import { getUser } from "@/lib/db/queries";
 import { GoalEditor } from "@/components/dashboard/goal-editor";
+import { DangerZone } from "@/components/dashboard/danger-zone";
 import type { UserId } from "@/lib/db/schema";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +30,7 @@ export default async function SettingsPage() {
         </p>
       </header>
       <GoalEditor user={user} />
+      <DangerZone userName={user.name} />
     </main>
   );
 }

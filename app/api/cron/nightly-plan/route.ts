@@ -10,7 +10,7 @@ import type { UserId } from "@/lib/db/schema";
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
-const USERS: UserId[] = ["garfield", "partner", "test"];
+const USERS: UserId[] = ["garfield", "partner"];
 
 export async function GET(req: Request) {
   const auth = verifyCronAuth(req);

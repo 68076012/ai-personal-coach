@@ -19,12 +19,6 @@ const USERS = [
     accent:
       "bg-teal-500/10 hover:bg-teal-500/20 border-teal-500/30",
   },
-  {
-    id: "test",
-    label: "Test account",
-    accent:
-      "bg-violet-500/10 hover:bg-violet-500/20 border-violet-500/30",
-  },
 ] as const;
 
 export function LoginPicker() {
