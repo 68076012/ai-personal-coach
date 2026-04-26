@@ -84,7 +84,6 @@ export async function callGemini(
             systemInstruction: params.systemInstruction,
             contents: params.contents,
             tools: params.tools,
-            temperature: 0.7,
           })
         : await getClient().models.generateContent({
             model: GEMINI_MODEL[tier],
