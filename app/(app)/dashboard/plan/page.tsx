@@ -12,8 +12,9 @@ import {
 import { PlanEditor } from "@/components/dashboard/plan-editor";
 import { PlanRangeView } from "@/components/dashboard/plan-range-view";
 import { PendingPlanBanner } from "@/components/dashboard/pending-plan-banner";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { AppBar, HiFiCard, HiFiButton } from "@/components/hifi";
+import { getLang } from "@/lib/i18n/server";
+import { t } from "@/lib/i18n";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { DailyPlan, UserId } from "@/lib/db/schema";
 
@@ -87,12 +88,13 @@ export default async function PlanPage({
 
   const monthEnd = formatInTimeZone(addDays(now, 31), TZ, "yyyy-MM-dd");
 
-  const [plans, selectedPlan, tomorrowPlan, pendingPlans, user] = await Promise.all([
+  const [plans, selectedPlan, tomorrowPlan, pendingPlans, user, lang] = await Promise.all([
     getDailyPlansBetween(userId, today, monthEnd).catch(() => []),
     getDailyPlan(userId, requestedDate).catch(() => null),
     getDailyPlan(userId, tomorrow).catch(() => null),
     getActivePendingPlans(userId).catch(() => []),
     getUser(userId).catch(() => null),
+    getLang(),
   ]);
   const goalKcal = user?.goal_kcal ?? null;
 
@@ -110,58 +112,58 @@ export default async function PlanPage({
         : `วันที่ ${requestedDate}`;
 
   return (
-    <main className="mx-auto w-full max-w-5xl px-4 py-6 space-y-4">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">แผน</h1>
-        <p className="text-sm text-muted-foreground">
-          วางทีละวัน, ทั้งสัปดาห์, หรือทั้งเดือน — โค้ชช่วยตามจังหวะที่คุณต้องการ
-        </p>
-      </header>
+    <>
+      <AppBar
+        eyebrow={lang === "th" ? "วางแผน" : "Schedule"}
+        title={t("plan", lang)}
+      />
+      <div className="mx-auto w-full max-w-5xl px-4 pb-8 space-y-4">
+        {pendingPlans.length > 0 && (
+          <div className="space-y-3">
+            {pendingPlans.map((p) => (
+              <PendingPlanBanner key={p.id} pending={p} />
+            ))}
+          </div>
+        )}
 
-      {pendingPlans.length > 0 && (
-        <div className="space-y-3">
-          {pendingPlans.map((p) => (
-            <PendingPlanBanner key={p.id} pending={p} />
-          ))}
-        </div>
-      )}
-
-      <Card className="bg-muted/30">
-        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <HiFiCard className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-2">
-            <Sparkles className="mt-0.5 size-4 shrink-0 text-violet-500" />
+            <Sparkles className="mt-0.5 size-4 shrink-0 text-[var(--accent)]" />
             <div className="text-sm">
-              <p className="font-medium">เริ่มต้นง่ายๆ</p>
-              <p className="text-muted-foreground">
-                ให้โค้ชช่วยวางตามเป้าหมาย ของในครัว และเวลาว่างที่ตั้งไว้ในตั้งค่า
+              <p className="font-medium text-[var(--ink)]">
+                {lang === "th" ? "เริ่มต้นง่ายๆ" : "Quick start"}
+              </p>
+              <p className="text-[var(--ink-3)] text-xs">
+                {lang === "th"
+                  ? "ให้โค้ชช่วยวางตามเป้าหมาย ของในครัว และเวลาว่างที่ตั้งไว้"
+                  : "Have the coach plan around your goals, pantry, and free windows"}
               </p>
             </div>
           </div>
           <div className="flex flex-wrap gap-2 sm:shrink-0">
-            <Button variant="outline" size="sm" asChild>
+            <HiFiButton size="sm" asChild>
               <Link
                 href={`/dashboard/chat?draft=${encodeURIComponent("ช่วยวางแผนวันนี้ — workout + เมนูทั้งวัน")}`}
               >
-                <MessageSquare className="size-4" /> วันนี้
+                <MessageSquare className="size-4" /> {t("plan_today", lang)}
               </Link>
-            </Button>
-            <Button variant="outline" size="sm" asChild>
+            </HiFiButton>
+            <HiFiButton size="sm" asChild>
               <Link
-                href={`/dashboard/chat?draft=${encodeURIComponent("ช่วยวางแผน 7 วันถัดไป — เมนูทั้งวัน + workout split (เรียก propose_meals และ update_plan ทีละวัน)")}`}
+                href={`/dashboard/chat?draft=${encodeURIComponent("ช่วยวางแผน 7 วันถัดไป — เมนูทั้งวัน + workout split, เรียก propose_plan_bulk รอบเดียวเป็น draft")}`}
               >
-                <MessageSquare className="size-4" /> 7 วัน
+                <MessageSquare className="size-4" /> {t("plan_week", lang)}
               </Link>
-            </Button>
-            <Button variant="outline" size="sm" asChild>
+            </HiFiButton>
+            <HiFiButton size="sm" asChild>
               <Link
-                href={`/dashboard/chat?draft=${encodeURIComponent("ช่วยวางแผน 1 เดือน — แบ่งเป็น 4 สัปดาห์ progressive ทั้ง workout และเมนู สอดคล้องกับงบและของในครัว")}`}
+                href={`/dashboard/chat?draft=${encodeURIComponent("ช่วยวางแผน 1 เดือน — แบ่ง 4 สัปดาห์ progressive ทั้ง workout และเมนู เรียก propose_plan_bulk เป็น draft")}`}
               >
-                <MessageSquare className="size-4" /> 1 เดือน
+                <MessageSquare className="size-4" /> {t("plan_month", lang)}
               </Link>
-            </Button>
+            </HiFiButton>
           </div>
-        </CardContent>
-      </Card>
+        </HiFiCard>
 
       <Tabs defaultValue={tab} className="space-y-4">
         <TabsList className="w-full sm:w-auto">
@@ -221,6 +223,7 @@ export default async function PlanPage({
           )}
         </TabsContent>
       </Tabs>
-    </main>
+      </div>
+    </>
   );
 }
