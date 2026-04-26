@@ -24,6 +24,34 @@ function asAgent(value: string): AgentKey {
     : "orchestrator";
 }
 
+// Multi-agent dispatch: /api/chat runs each agent sequentially and each
+// runAgent logs its own copy of the user message under its own agent_type
+// (so per-agent conversation history stays coherent). On reload that
+// produces N consecutive identical user bubbles separated by assistant
+// replies. Fold them into one.
+//
+// Heuristic: if a user msg's content matches another user msg within the
+// last 6 hops of the rendered list, it's a multi-agent dispatch
+// duplicate — skip it. 6 hops covers up to 3 agents × 2 rows each, which
+// is the realistic upper bound for compound-prompt routing.
+function dedupMultiAgentUserMsgs(
+  msgs: HiFiChatMessageData[],
+): HiFiChatMessageData[] {
+  const out: HiFiChatMessageData[] = [];
+  const WINDOW = 6;
+  for (const msg of msgs) {
+    if (msg.role === "user") {
+      const recent = out.slice(-WINDOW);
+      const dup = recent.find(
+        (m) => m.role === "user" && m.content === msg.content,
+      );
+      if (dup) continue;
+    }
+    out.push(msg);
+  }
+  return out;
+}
+
 export default async function ChatPage({
   searchParams,
 }: {
@@ -42,12 +70,16 @@ export default async function ChatPage({
       .from(schema.conversations)
       .where(eq(schema.conversations.user_id, userId))
       .orderBy(desc(schema.conversations.created_at))
-      .limit(40)
+      // Bumped from 40 → 100. Multi-agent dispatch writes 3 rows per agent
+      // (user + tool + assistant), so a single compound prompt can be 6+ rows.
+      // The conversation_archival cron now keeps this table bounded long-term,
+      // so the higher limit doesn't grow unboundedly.
+      .limit(100)
       .catch(() => []),
     getLang(),
   ]);
 
-  const initial: HiFiChatMessageData[] = rows
+  const mapped: HiFiChatMessageData[] = rows
     .filter((r) => VISIBLE_ROLES.has(r.role))
     .reverse()
     .map((r) => ({
@@ -56,6 +88,7 @@ export default async function ChatPage({
       content: r.content,
       agent: r.role === "assistant" ? asAgent(r.agent_type) : undefined,
     }));
+  const initial = dedupMultiAgentUserMsgs(mapped);
 
   return (
     <>

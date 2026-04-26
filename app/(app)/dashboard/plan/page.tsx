@@ -201,6 +201,7 @@ export default async function PlanPage({
               label={editorLabel}
               plan={selectedPlan}
               chatPrompt={`ช่วยวางแผนวัน ${requestedDate} — workout + เมนูทั้งวัน`}
+              autoScroll={!!sp.date}
             />
           )}
         </TabsContent>
@@ -219,6 +220,7 @@ export default async function PlanPage({
               label={editorLabel}
               plan={selectedPlan}
               chatPrompt={`ช่วยวางแผนวัน ${requestedDate} — workout + เมนูทั้งวัน`}
+              autoScroll
             />
           )}
         </TabsContent>

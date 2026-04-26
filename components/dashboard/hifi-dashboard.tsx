@@ -104,25 +104,41 @@ export function HiFiDashboard({
   // their plan-array indices preserved so tap-to-check writes back to the
   // right slot on daily_plans.completion.
   const planMeals = (plan?.meal_plan as Array<{ name?: string; meal_type?: string; kcal?: number }> | null) ?? [];
-  const planWorkouts = (plan?.workout_plan as Array<{ exercise?: string; sets?: number; reps?: number }> | null) ?? [];
+  const planWorkouts = (plan?.workout_plan as Array<{
+    exercise?: string;
+    sets?: number;
+    reps?: number;
+    weight_kg?: number;
+    duration_min?: number;
+  }> | null) ?? [];
   const completion = (plan?.completion as
     | { workout_done?: number[]; meal_done?: number[] }
     | null) ?? {};
   const mealDone = new Set(completion.meal_done ?? []);
   const workoutDone = new Set(completion.workout_done ?? []);
+  // Today's focus = every meal + every workout from the plan, in plan
+  // order. Indices match the array positions on daily_plans so the
+  // tap-to-check writes back to the right slot. Each item is its own
+  // tickable row — no slicing, no grouping.
   const previewItems = [
-    ...planMeals.slice(0, 2).map((m, i) => ({
+    ...planMeals.map((m, i) => ({
       kind: "meal" as const,
       index: i,
       name: m.name ?? "?",
       meta: m.kcal ? `${m.kcal} ${t("kcal_short", lang)}` : "",
       done: mealDone.has(i),
     })),
-    ...planWorkouts.slice(0, 1).map((w, i) => ({
+    ...planWorkouts.map((w, i) => ({
       kind: "workout" as const,
       index: i,
       name: w.exercise ?? "?",
-      meta: w.sets ? `${w.sets}×${w.reps ?? "?"}` : "",
+      meta: [
+        w.sets ? `${w.sets}×${w.reps ?? "?"}` : "",
+        w.weight_kg ? `${w.weight_kg}kg` : "",
+        w.duration_min ? `${w.duration_min}min` : "",
+      ]
+        .filter(Boolean)
+        .join(" · "),
       done: workoutDone.has(i),
     })),
   ];
