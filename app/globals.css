@@ -128,3 +128,89 @@
     @apply font-sans;
   }
 }
+
+/* ============================================================================
+   HiFi design tokens (mobile redesign — see design_handoff_ai_personal_coach/)
+   Scoped to [data-design="hifi"] so shadcn defaults remain untouched on legacy
+   screens. New screens opt in by setting data-design="hifi" on the wrapper.
+   Per-user accent is set via data-accent="coral"|"teal" on any ancestor.
+   ============================================================================ */
+[data-design="hifi"] {
+  /* warm paper neutrals */
+  --bg: #faf7f1;
+  --surface: #ffffff;
+  --surface-2: #f3efe6;
+  --line: #e6e0d2;
+  --line-strong: #d6cdb8;
+  --ink: #1f1c17;
+  --ink-2: #4a4639;
+  --ink-3: #807a6a;
+  --ink-4: #b3ad9c;
+
+  /* fixed accent palette (per-user picker selects which is active below) */
+  --coral: #d97757;
+  --coral-soft: #fbe8df;
+  --teal: #2c9b8a;
+  --teal-soft: #d8efe9;
+
+  /* semantic tones */
+  --sun: #e0a830;
+  --sun-soft: #fbeecf;
+  --leaf: #6a9c4d;
+  --leaf-soft: #e3eed5;
+  --sky: #5b86a8;
+  --sky-soft: #dae7f0;
+
+  /* shadows */
+  --sh-1: 0 1px 2px rgba(31, 28, 23, 0.05), 0 1px 1px rgba(31, 28, 23, 0.04);
+  --sh-2: 0 6px 18px -6px rgba(31, 28, 23, 0.12), 0 2px 4px rgba(31, 28, 23, 0.04);
+  --sh-3: 0 18px 40px -16px rgba(31, 28, 23, 0.22);
+
+  /* radii */
+  --r-sm: 8px;
+  --r: 14px;
+  --r-lg: 20px;
+  --r-xl: 28px;
+
+  /* base */
+  background: var(--bg);
+  color: var(--ink);
+  font-feature-settings: "ss01", "cv11";
+}
+
+/* Dark-mode flip: piggyback on the existing .dark class set by next-themes
+   so light/dark toggling stays unified across legacy + hifi screens. */
+.dark [data-design="hifi"],
+[data-design="hifi"][data-theme="dark"] {
+  --bg: #181612;
+  --surface: #23201a;
+  --surface-2: #2c2922;
+  --line: #36322a;
+  --line-strong: #4a463c;
+  --ink: #f4efe3;
+  --ink-2: #d3ccba;
+  --ink-3: #918a78;
+  --ink-4: #5a554a;
+  --coral-soft: #3a2520;
+  --teal-soft: #1d3633;
+  --sun-soft: #3a2f18;
+  --leaf-soft: #243018;
+  --sky-soft: #1d2c38;
+}
+
+/* Per-user accent: sets --accent + --accent-soft to the right palette. */
+[data-design="hifi"][data-accent="coral"],
+[data-accent="coral"] [data-design="hifi"] {
+  --accent: var(--coral);
+  --accent-soft: var(--coral-soft);
+}
+[data-design="hifi"][data-accent="teal"],
+[data-accent="teal"] [data-design="hifi"] {
+  --accent: var(--teal);
+  --accent-soft: var(--teal-soft);
+}
+
+/* Numerics — stable digits in hero stat cards. */
+[data-design="hifi"] .tabular {
+  font-variant-numeric: tabular-nums;
+}
