@@ -12,3 +12,4 @@ export {
   type HiFiButtonVariant,
   type HiFiButtonSize,
 } from "./button";
+export { LangToggle } from "./lang-toggle";
