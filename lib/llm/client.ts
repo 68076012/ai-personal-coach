@@ -40,11 +40,15 @@ function incrementCount(model: ModelTier): number {
   return next;
 }
 
-function isRateLimit(err: unknown): boolean {
+function classifyTransient(err: unknown): "rate_limit" | "overloaded" | "server_error" | null {
   const e = err as { status?: number; message?: string; code?: number };
-  if (!e) return false;
-  if (e.status === 429 || e.code === 429) return true;
-  return /429|RESOURCE_EXHAUSTED|quota/i.test(e.message ?? "");
+  if (!e) return null;
+  const code = e.status ?? e.code;
+  const msg = e.message ?? "";
+  if (code === 429 || /429|RESOURCE_EXHAUSTED|quota/i.test(msg)) return "rate_limit";
+  if (code === 503 || /503|UNAVAILABLE|overloaded|high demand/i.test(msg)) return "overloaded";
+  if (code === 500 || code === 502 || code === 504) return "server_error";
+  return null;
 }
 
 export interface CallParams {
@@ -108,8 +112,9 @@ export async function callGemini(
         latencyMs: latency,
         error: err instanceof Error ? err.message : String(err),
       });
-      if (isRateLimit(err) && tier !== chain[chain.length - 1]) {
-        console.warn(`[llm] ${tier} rate-limited, trying next tier`);
+      const transient = classifyTransient(err);
+      if (transient && tier !== chain[chain.length - 1]) {
+        console.warn(`[llm] ${tier} ${transient}, trying next tier`);
         continue;
       }
       throw err;
