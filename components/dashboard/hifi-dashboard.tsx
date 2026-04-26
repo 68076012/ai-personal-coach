@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Dumbbell,
   Flame,
+  Soup,
   Sparkles,
   Sun,
   TrendingUp,
@@ -337,14 +338,11 @@ function MacroRow({
 }
 
 function MorningReportInline({ report, lang }: { report: MorningReport; lang: Lang }) {
-  const [open, setOpen] = React.useState(true);
   const [dismissed, setDismissed] = React.useState(false);
   if (dismissed) return null;
 
-  // The summary_md from Reporter contains markdown. For Phase 4 we render
-  // it as preformatted text inside the card; richer markdown rendering can
-  // come in Phase 12 (full takeover).
-  const firstLine = (report.summary_md || "").split("\n").find((l) => l.trim()) ?? "";
+  const firstLine =
+    (report.summary_md || "").split("\n").find((l) => l.trim()) ?? "";
 
   return (
     <HiFiCard
@@ -367,34 +365,30 @@ function MorningReportInline({ report, lang }: { report: MorningReport; lang: La
         </div>
         <div className="flex-1" />
         <button
-          onClick={() => setOpen(!open)}
-          aria-label={open ? t("close", lang) : t("expand", lang)}
-          className="text-[var(--ink-3)] p-1.5"
-        >
-          <ChevronRight
-            className={cn(
-              "size-4 transition-transform",
-              open ? "rotate-90" : "-rotate-90",
-            )}
-          />
-        </button>
-        <button
-          onClick={() => setDismissed(true)}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setDismissed(true);
+          }}
           aria-label={t("close", lang)}
           className="text-[var(--ink-3)] p-1.5"
         >
           ✕
         </button>
       </div>
-      {open && (
-        <div className="text-sm text-[var(--ink-2)] leading-relaxed relative whitespace-pre-wrap">
+      <Link href="/dashboard/morning" className="block relative">
+        <div className="text-sm text-[var(--ink-2)] leading-relaxed whitespace-pre-wrap">
           {firstLine || (
             <span className="italic text-[var(--ink-3)]">
               {lang === "th" ? "(ยังไม่มีรายงาน)" : "(No report yet)"}
             </span>
           )}
         </div>
-      )}
+        <div className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-[var(--accent)]">
+          {lang === "th" ? "ดูเต็ม ✨" : "View full ✨"}
+          <ChevronRight className="size-3.5" />
+        </div>
+      </Link>
     </HiFiCard>
   );
 }
