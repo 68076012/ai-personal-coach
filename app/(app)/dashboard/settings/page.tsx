@@ -2,7 +2,7 @@ import { getSession } from "@/lib/auth";
 import { getUser } from "@/lib/db/queries";
 import { GoalEditor } from "@/components/dashboard/goal-editor";
 import { DangerZone } from "@/components/dashboard/danger-zone";
-import { AppBar, HiFiCard, LangToggle } from "@/components/hifi";
+import { AppBar, HiFiCard, LangToggle, ThemeToggle } from "@/components/hifi";
 import { getLang } from "@/lib/i18n/server";
 import { t } from "@/lib/i18n";
 import type { UserId } from "@/lib/db/schema";
@@ -54,6 +54,21 @@ export default async function SettingsPage() {
             </div>
           </div>
           <LangToggle current={lang} />
+        </HiFiCard>
+
+        {/* Theme toggle */}
+        <HiFiCard className="flex items-center justify-between p-4">
+          <div>
+            <div className="text-sm font-semibold text-[var(--ink)]">
+              {lang === "th" ? "ธีม" : "Theme"}
+            </div>
+            <div className="text-xs text-[var(--ink-3)] mt-0.5">
+              {lang === "th"
+                ? "เลือกสว่าง/มืด หรือตามระบบ"
+                : "Choose light, dark, or follow your OS"}
+            </div>
+          </div>
+          <ThemeToggle lang={lang} />
         </HiFiCard>
 
         <GoalEditor user={user} />

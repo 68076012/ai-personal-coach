@@ -13,3 +13,4 @@ export {
   type HiFiButtonSize,
 } from "./button";
 export { LangToggle } from "./lang-toggle";
+export { ThemeToggle } from "./theme-toggle";
