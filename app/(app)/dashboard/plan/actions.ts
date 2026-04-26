@@ -3,6 +3,8 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { getSession } from "@/lib/auth";
+import { db, schema } from "@/lib/db/client";
+import { and, eq } from "drizzle-orm";
 import {
   approvePendingPlan as approvePendingPlanQuery,
   rejectPendingPlan as rejectPendingPlanQuery,
@@ -94,6 +96,35 @@ export async function togglePlanItemDoneAction(
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/plan");
   return { ok: true };
+}
+
+const DeletePlanInput = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+
+// Wipes today's (or any date's) plan entirely. Used when the user wants to
+// re-plan from scratch — deletes the daily_plans row for that date,
+// taking workout_plan, meal_plan, notes, and completion with it.
+// Approved plans (in pending_plans) are kept as-is; if you re-Apply them
+// later they'll re-create the row.
+export async function deletePlanForDate(input: z.infer<typeof DeletePlanInput>) {
+  const session = await getSession();
+  if (!session.userId) throw new Error("unauthenticated");
+  const parsed = DeletePlanInput.safeParse(input);
+  if (!parsed.success) throw new Error("bad_input");
+  const userId = session.userId as UserId;
+  const r = await db
+    .delete(schema.daily_plans)
+    .where(
+      and(
+        eq(schema.daily_plans.user_id, userId),
+        eq(schema.daily_plans.date, parsed.data.date),
+      ),
+    )
+    .returning({ id: schema.daily_plans.id });
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/plan");
+  return { ok: true, deleted: r.length > 0 };
 }
 
 export async function toggleWorkoutPause(
