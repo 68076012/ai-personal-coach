@@ -38,11 +38,19 @@ export function HiFiChatPanel({
   const scrollerRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
+  // Run after every paint so the scroll area is laid out with its real
+  // height before we ask it to scroll. First paint = "auto" (instant) so
+  // the user lands at the bottom immediately even when arriving with a
+  // prefilled draft from another page; later updates use smooth.
+  const didMount = useRef(false);
   useEffect(() => {
-    scrollerRef.current?.scrollTo({
-      top: scrollerRef.current.scrollHeight,
-      behavior: "smooth",
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.scrollTo({
+      top: el.scrollHeight,
+      behavior: didMount.current ? "smooth" : "auto",
     });
+    didMount.current = true;
   }, [messages]);
 
   function send() {
@@ -104,8 +112,12 @@ export function HiFiChatPanel({
 
   return (
     <>
-      {/* Scroll area */}
-      <div ref={scrollerRef} className="flex-1 overflow-y-auto px-4 pt-3 pb-3">
+      {/* Scroll area — flex-1 + min-h-0 so it fills the remaining height
+          inside main's flex column, instead of collapsing to its content. */}
+      <div
+        ref={scrollerRef}
+        className="flex-1 min-h-0 overflow-y-auto px-4 pt-3 pb-3"
+      >
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-3">
           {messages.length === 0 && (
             <div className="rounded-[var(--r-lg)] border border-dashed border-[var(--line-strong)] bg-[var(--surface)] p-6 text-center text-sm text-[var(--ink-3)]">
