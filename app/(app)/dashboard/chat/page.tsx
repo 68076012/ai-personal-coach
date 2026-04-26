@@ -4,6 +4,7 @@ import { desc, eq } from "drizzle-orm";
 import { AppBar } from "@/components/hifi";
 import { HiFiChatPanel, type HiFiChatMessageData } from "@/components/chat/hifi-chat-panel";
 import type { AgentKey } from "@/components/chat/hifi-agent-badge";
+import type { ToolEvent } from "@/components/chat/hifi-tool-card";
 import { getUser } from "@/lib/db/queries";
 import { getLang } from "@/lib/i18n/server";
 import { t } from "@/lib/i18n";
@@ -82,12 +83,25 @@ export default async function ChatPage({
   const mapped: HiFiChatMessageData[] = rows
     .filter((r) => VISIBLE_ROLES.has(r.role))
     .reverse()
-    .map((r) => ({
-      id: r.id,
-      role: r.role as "user" | "assistant",
-      content: r.content,
-      agent: r.role === "assistant" ? asAgent(r.agent_type) : undefined,
-    }));
+    .map((r) => {
+      // Synthesis path attaches tool_calls directly to the assistant row
+      // (single-row pattern) so the Apply/Reject card can re-render on
+      // reload. Per-agent path stores tool calls on a separate "tool" row
+      // which is filtered out above — those won't show their cards on
+      // history reload, which is fine since their cards are mostly
+      // informational.
+      const toolEvents: ToolEvent[] | undefined =
+        r.role === "assistant" && Array.isArray(r.tool_calls)
+          ? (r.tool_calls as ToolEvent[])
+          : undefined;
+      return {
+        id: r.id,
+        role: r.role as "user" | "assistant",
+        content: r.content,
+        agent: r.role === "assistant" ? asAgent(r.agent_type) : undefined,
+        toolEvents,
+      };
+    });
   const initial = dedupMultiAgentUserMsgs(mapped);
 
   return (
