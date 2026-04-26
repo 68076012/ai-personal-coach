@@ -5,6 +5,8 @@ import { revalidatePath } from "next/cache";
 import { getSession } from "@/lib/auth";
 import { resetUserData, updateUser } from "@/lib/db/queries";
 import type { UserId } from "@/lib/db/schema";
+import { setLang as setLangCookie } from "@/lib/i18n/server";
+import { LANGS } from "@/lib/i18n";
 
 const GoalInput = z.object({
   goal: z.string().min(1).max(500),
@@ -46,6 +48,18 @@ const ResetAccountInput = z.object({
   // can't fire the action.
   confirmation: z.literal("RESET"),
 });
+
+const SetLangInput = z.object({
+  lang: z.enum(LANGS as unknown as [string, ...string[]]),
+});
+
+export async function setLangAction(input: z.infer<typeof SetLangInput>) {
+  const parsed = SetLangInput.safeParse(input);
+  if (!parsed.success) throw new Error("bad_lang");
+  await setLangCookie(parsed.data.lang as "th" | "en");
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
 
 export async function resetAccount(input: z.infer<typeof ResetAccountInput>) {
   const session = await getSession();

@@ -8,16 +8,55 @@ import {
   getRecentWorkouts,
   getUser,
 } from "@/lib/db/queries";
-import { TodayPlanCard } from "@/components/dashboard/today-plan-card";
-import { MacroRing } from "@/components/dashboard/macro-ring";
-import { RecentLogs } from "@/components/dashboard/recent-logs";
-import { QuickActions } from "@/components/dashboard/quick-actions";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { getLang } from "@/lib/i18n/server";
+import { HiFiDashboard } from "@/components/dashboard/hifi-dashboard";
 import type { UserId } from "@/lib/db/schema";
+import { db, schema } from "@/lib/db/client";
+import { and, desc, eq, sql } from "drizzle-orm";
 
 const TZ = "Asia/Bangkok";
 
 export const dynamic = "force-dynamic";
+
+// Cheap streak calc: count distinct days going back from today where the
+// user has at least one meal logged. Stops at first gap. Capped at 60 to
+// keep the query bounded.
+async function getMealStreak(userId: UserId): Promise<number> {
+  try {
+    const rows = await db
+      .select({
+        d: sql<string>`(((${schema.meals.datetime}) AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date`,
+      })
+      .from(schema.meals)
+      .where(eq(schema.meals.user_id, userId))
+      .groupBy(sql`(((${schema.meals.datetime}) AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date`)
+      .orderBy(desc(sql`(((${schema.meals.datetime}) AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Bangkok')::date`))
+      .limit(60);
+    if (rows.length === 0) return 0;
+    // Walk backward from today; expect today, today-1, ...
+    const todayBkk = formatInTimeZone(new Date(), TZ, "yyyy-MM-dd");
+    const set = new Set(rows.map((r) => r.d));
+    let streak = 0;
+    let cursor = new Date(todayBkk + "T00:00:00+07:00");
+    for (let i = 0; i < 60; i++) {
+      const key = cursor.toISOString().slice(0, 10);
+      if (set.has(key)) {
+        streak++;
+        cursor.setDate(cursor.getDate() - 1);
+      } else {
+        break;
+      }
+    }
+    // Drop today if today has no meals — we don't want "1" to flicker before lunch.
+    if (streak === 1 && !set.has(todayBkk)) return 0;
+    return streak;
+  } catch {
+    return 0;
+  }
+}
+
+// suppress unused (and is referenced via sql tag)
+void and;
 
 export default async function DashboardHome() {
   const session = await getSession();
@@ -26,11 +65,11 @@ export default async function DashboardHome() {
 
   const now = new Date();
   const todayDate = formatInTimeZone(now, TZ, "yyyy-MM-dd");
+  const hourBkk = parseInt(formatInTimeZone(now, TZ, "H"), 10);
   const dayStart = new Date(`${todayDate}T00:00:00+07:00`);
   const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
 
-  // Resilient against DB outages: if any call fails, fall back to safe defaults.
-  const [user, plan, macros, meals, workouts, report] = await Promise.all([
+  const [user, plan, macros, meals, workouts, report, lang, streak] = await Promise.all([
     getUser(userId).catch(() => null),
     getDailyPlan(userId, todayDate).catch(() => null),
     getDayMacros(userId, dayStart, dayEnd).catch(() => ({
@@ -42,53 +81,30 @@ export default async function DashboardHome() {
     getRecentMeals(userId, 8).catch(() => []),
     getRecentWorkouts(userId, 8).catch(() => []),
     getMorningReport(userId, todayDate).catch(() => null),
+    getLang(),
+    getMealStreak(userId),
   ]);
 
+  if (!user) {
+    return (
+      <main className="px-4 py-8 text-sm text-[var(--ink-3)]">
+        ยังโหลดข้อมูลไม่ได้ — เช็ค DATABASE_URL
+      </main>
+    );
+  }
+
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-6 space-y-4">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">
-          สวัสดี {user?.name ?? userId}
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          {formatInTimeZone(now, TZ, "EEEEที่ d MMMM yyyy")}
-        </p>
-      </header>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base font-semibold">
-            มาโครวันนี้
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-4 gap-3">
-            <MacroRing label="kcal" value={macros.kcal} goal={user?.goal_kcal ?? null} unit="" accent="kcal" />
-            <MacroRing label="P" value={macros.protein_g} goal={user?.goal_protein_g ?? null} unit="g" accent="protein" />
-            <MacroRing label="C" value={macros.carb_g} goal={user?.goal_carb_g ?? null} unit="g" accent="carb" />
-            <MacroRing label="F" value={macros.fat_g} goal={user?.goal_fat_g ?? null} unit="g" accent="fat" />
-          </div>
-        </CardContent>
-      </Card>
-
-      {report && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base font-semibold">สรุปเช้านี้</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed">
-              {report.summary_md}
-            </pre>
-          </CardContent>
-        </Card>
-      )}
-
-      <TodayPlanCard plan={plan} date={todayDate} />
-
-      <QuickActions />
-
-      <RecentLogs meals={meals} workouts={workouts} />
-    </main>
+    <HiFiDashboard
+      lang={lang}
+      user={user}
+      todayDate={todayDate}
+      hourBkk={hourBkk}
+      macros={macros}
+      meals={meals}
+      workouts={workouts}
+      plan={plan}
+      report={report}
+      streakDays={streak}
+    />
   );
 }
