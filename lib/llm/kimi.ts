@@ -126,7 +126,6 @@ export interface CallKimiParams {
   systemInstruction: string;
   contents: Content[];
   tools?: FunctionDeclaration[];
-  temperature?: number;
 }
 
 // Returns a duck-typed object compatible with the subset of GenerateContentResponse
@@ -140,12 +139,16 @@ export async function callKimi(
     ? declarationsToOpenAITools(params.tools)
     : undefined;
 
+  // Don't pass temperature: Kimi K2.6 (and other reasoning-class Moonshot
+  // models) reject any value other than 1 with "400 invalid temperature: only
+  // 1 is allowed for this model". Letting Moonshot apply the model-specific
+  // default avoids maintaining a per-model whitelist and keeps adding new
+  // models risk-free.
   const completion = await client.chat.completions.create({
     model: GEMINI_MODEL.kimi,
     messages,
     tools,
     tool_choice: tools ? "auto" : undefined,
-    temperature: params.temperature ?? 0.7,
   });
 
   const choice = completion.choices[0];
