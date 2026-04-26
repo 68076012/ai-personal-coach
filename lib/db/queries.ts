@@ -274,6 +274,56 @@ export async function upsertMorningReport(
   return r;
 }
 
+// ===== Account reset =====
+// Clears all activity data for one user. Keeps the users row (profile/goals)
+// and llm_calls (telemetry / cost tracking). Set { wipeUserRow: true } to
+// also delete the user identity itself — used by the migration that drops
+// the legacy test user.
+export async function resetUserData(
+  userId: UserId,
+  opts: { wipeUserRow?: boolean } = {},
+) {
+  // Order matters only insofar as nothing FK-references anything but users.
+  const counts = {
+    meals: 0,
+    workouts: 0,
+    daily_logs: 0,
+    daily_plans: 0,
+    agent_memory: 0,
+    conversations: 0,
+    morning_reports: 0,
+    meal_library: 0,
+    pending_plans: 0,
+    user_row_deleted: false,
+  };
+
+  const r1 = await db.delete(meals).where(eq(meals.user_id, userId)).returning({ id: meals.id });
+  counts.meals = r1.length;
+  const r2 = await db.delete(workouts).where(eq(workouts.user_id, userId)).returning({ id: workouts.id });
+  counts.workouts = r2.length;
+  const r3 = await db.delete(daily_logs).where(eq(daily_logs.user_id, userId)).returning({ id: daily_logs.id });
+  counts.daily_logs = r3.length;
+  const r4 = await db.delete(daily_plans).where(eq(daily_plans.user_id, userId)).returning({ id: daily_plans.id });
+  counts.daily_plans = r4.length;
+  const r5 = await db.delete(agent_memory).where(eq(agent_memory.user_id, userId)).returning({ id: agent_memory.id });
+  counts.agent_memory = r5.length;
+  const r6 = await db.delete(conversations).where(eq(conversations.user_id, userId)).returning({ id: conversations.id });
+  counts.conversations = r6.length;
+  const r7 = await db.delete(morning_reports).where(eq(morning_reports.user_id, userId)).returning({ id: morning_reports.id });
+  counts.morning_reports = r7.length;
+  const r8 = await db.delete(meal_library).where(eq(meal_library.user_id, userId)).returning({ id: meal_library.id });
+  counts.meal_library = r8.length;
+  const r9 = await db.delete(pending_plans).where(eq(pending_plans.user_id, userId)).returning({ id: pending_plans.id });
+  counts.pending_plans = r9.length;
+
+  if (opts.wipeUserRow) {
+    const r10 = await db.delete(users).where(eq(users.id, userId)).returning({ id: users.id });
+    counts.user_row_deleted = r10.length > 0;
+  }
+
+  return counts;
+}
+
 // ===== Aggregates =====
 export async function getDayMacros(userId: UserId, dayStart: Date, dayEnd: Date) {
   const rows = await db

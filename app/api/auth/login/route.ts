@@ -4,7 +4,7 @@ import { getSession } from "@/lib/auth";
 import type { UserId } from "@/lib/db/schema";
 
 const Body = z.object({
-  userId: z.enum(["garfield", "partner", "test"]),
+  userId: z.enum(["garfield", "partner"]),
 });
 
 export async function POST(req: Request) {

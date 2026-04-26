@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSession } from "@/lib/auth";
+import { LLMChainError, type LLMChainKind } from "@/lib/llm/client";
 import { runAgent } from "@/lib/llm/runtime";
 import { routeMessage, specialistFor } from "@/lib/llm/orchestrator";
 import {
@@ -9,6 +10,15 @@ import {
   MEAL_DESIGNER_PROMPT,
   REPORTER_PROMPT,
 } from "@/lib/llm/prompts";
+
+const CHAIN_USER_MESSAGE: Record<LLMChainKind, string> = {
+  gemini_quota:
+    "Gemini quota หมดวันนี้ — รีเซ็ตประมาณ 14:00 ICT 🕑 ระหว่างนี้ลองอีกครั้ง 1-2 นาที (ระบบจะลอง Kimi ให้)",
+  kimi_overload:
+    "Kimi (fallback) แน่นอยู่ตอนนี้ — engine overloaded ไม่ใช่ปัญหา balance. ลองอีกที 30-60 วินาที 🙏",
+  all_failed:
+    "AI ทุก provider ขัดข้องชั่วคราว — ลองอีกครั้งใน 1-2 นาที. ถ้ายังเป็นอยู่ เช็ค /dashboard/admin",
+};
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -80,16 +90,19 @@ export async function POST(req: Request) {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[/api/chat]", err);
-    if (/all tiers exhausted|RESOURCE_EXHAUSTED|429/i.test(msg)) {
+
+    if (err instanceof LLMChainError) {
       return NextResponse.json(
         {
           ok: false,
-          error: "quota_exhausted",
-          message: "AI quota หมดวันนี้ — ลองพรุ่งนี้นะ 🙏",
+          error: err.kind,
+          message: CHAIN_USER_MESSAGE[err.kind],
+          details: err.attempts,
         },
         { status: 429 },
       );
     }
+
     if (/GOOGLE_API_KEY/.test(msg)) {
       return NextResponse.json(
         {
