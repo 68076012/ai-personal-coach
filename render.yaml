@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: ai-personal-coach
+    runtime: node
+    region: singapore
+    plan: free
+    branch: main
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build
+    startCommand: pnpm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 20.19.0
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: AUTH_SECRET
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: MOONSHOT_API_KEY
+        sync: false
+      - key: MOONSHOT_MODEL
+        sync: false
+      - key: MOONSHOT_BASE_URL
+        sync: false
+      - key: CRON_SECRET
+        sync: false
