@@ -1,6 +1,6 @@
 import { getSession } from "@/lib/auth";
 import { db, schema } from "@/lib/db/client";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { AppBar } from "@/components/hifi";
 import { HiFiChatPanel, type HiFiChatMessageData } from "@/components/chat/hifi-chat-panel";
 import type { AgentKey } from "@/components/chat/hifi-agent-badge";
@@ -103,6 +103,64 @@ export default async function ChatPage({
         toolEvents,
       };
     });
+
+  // Persisted toolEvents have status frozen at synthesis time ("pending").
+  // If the user already approved or rejected the plan via /dashboard/plan,
+  // the chat card would still show Apply/Reject buttons on reload. Rewrite
+  // each propose_plan_bulk event's data.status with the live status from
+  // pending_plans so the card can initialize its decision state correctly.
+  const pendingIds = new Set<string>();
+  for (const m of mapped) {
+    for (const ev of m.toolEvents ?? []) {
+      if (ev.tool !== "propose_plan_bulk") continue;
+      const pid = (ev.result?.data as { pending_id?: string } | undefined)
+        ?.pending_id;
+      if (typeof pid === "string") pendingIds.add(pid);
+    }
+  }
+  const liveStatusById = new Map<string, string>();
+  if (pendingIds.size > 0) {
+    const idArr = [...pendingIds];
+    const statusRows = await db
+      .select({
+        id: schema.pending_plans.id,
+        status: schema.pending_plans.status,
+      })
+      .from(schema.pending_plans)
+      .where(
+        and(
+          eq(schema.pending_plans.user_id, userId),
+          inArray(schema.pending_plans.id, idArr),
+        ),
+      )
+      .catch(() => []);
+    for (const r of statusRows) liveStatusById.set(r.id, r.status);
+  }
+  for (const m of mapped) {
+    if (!m.toolEvents) continue;
+    m.toolEvents = m.toolEvents.map((ev) => {
+      if (ev.tool !== "propose_plan_bulk") return ev;
+      const baseData =
+        (ev.result?.data as Record<string, unknown> | null | undefined) ?? {};
+      const pid =
+        typeof baseData.pending_id === "string" ? baseData.pending_id : null;
+      if (!pid) return ev;
+      const liveStatus = liveStatusById.get(pid);
+      // If the row is no longer in pending_plans (rare — only on explicit
+      // deletion), keep the frozen "pending" status. The user might get a
+      // "not found" toast on click, which is honest. Don't fabricate a
+      // resolution we can't verify.
+      if (!liveStatus || liveStatus === baseData.status) return ev;
+      return {
+        ...ev,
+        result: {
+          ...ev.result,
+          data: { ...baseData, status: liveStatus },
+        },
+      };
+    });
+  }
+
   let initial = dedupMultiAgentUserMsgs(mapped);
 
   // If the most recent persisted row is a user message from the last

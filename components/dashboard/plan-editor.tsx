@@ -97,6 +97,38 @@ export function PlanEditor({ date, label, plan, chatPrompt, autoScroll }: Props)
     () => new Set(initialCompletion.meal_done ?? []),
   );
 
+  // Re-sync local editor state when the parent supplies a different
+  // server-side plan. Without this, useState initializers only run on
+  // first mount, so router.refresh() after Approve (which writes a new
+  // daily_plans row) leaves the editor showing empty/old state until
+  // the user navigates away and back. Signature compare avoids the
+  // re-sync clobbering in-progress local edits — only resyncs when the
+  // server payload actually changed.
+  const planSig = useMemo(
+    () =>
+      JSON.stringify({
+        w: plan?.workout_plan ?? null,
+        m: plan?.meal_plan ?? null,
+        n: plan?.notes ?? null,
+        c: plan?.completion ?? null,
+      }),
+    [plan],
+  );
+  const lastSyncedSigRef = useRef(planSig);
+  useEffect(() => {
+    if (planSig === lastSyncedSigRef.current) return;
+    lastSyncedSigRef.current = planSig;
+    setWorkouts(asWorkoutArray(plan?.workout_plan));
+    setMeals(asMealArray(plan?.meal_plan));
+    setNotes(plan?.notes ?? "");
+    const comp =
+      (plan?.completion as
+        | { workout_done?: number[]; meal_done?: number[] }
+        | null) ?? {};
+    setWorkoutDone(new Set(comp.workout_done ?? []));
+    setMealDone(new Set(comp.meal_done ?? []));
+  }, [planSig, plan]);
+
   function toggleDone(kind: "workout" | "meal", index: number) {
     const setSet = kind === "workout" ? setWorkoutDone : setMealDone;
     const current = kind === "workout" ? workoutDone : mealDone;
