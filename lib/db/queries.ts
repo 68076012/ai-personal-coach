@@ -75,6 +75,22 @@ export async function insertWorkout(row: NewWorkout) {
   return w;
 }
 
+export async function deleteMealById(userId: UserId, id: string) {
+  const [row] = await db
+    .delete(meals)
+    .where(and(eq(meals.id, id), eq(meals.user_id, userId)))
+    .returning();
+  return row ?? null;
+}
+
+export async function deleteWorkoutById(userId: UserId, id: string) {
+  const [row] = await db
+    .delete(workouts)
+    .where(and(eq(workouts.id, id), eq(workouts.user_id, userId)))
+    .returning();
+  return row ?? null;
+}
+
 export async function getWorkoutsSince(userId: UserId, since: Date) {
   return db
     .select()
@@ -185,6 +201,64 @@ export async function getAgentMemory(
     )
     .orderBy(desc(agent_memory.updated_at))
     .limit(limit);
+}
+
+// ===== Conversation archival =====
+// Find all (user_id, isoYear, isoWeek) groupings of conversations older than
+// `cutoffDate` so a cron can summarize them into agent_memory and delete
+// the originals. Returns {user_id, year, week, count} buckets.
+export async function getArchivableConversationWeeks(cutoffDate: Date) {
+  return db
+    .select({
+      user_id: conversations.user_id,
+      year: sql<number>`extract(isoyear from ${conversations.created_at})::int`,
+      week: sql<number>`extract(week from ${conversations.created_at})::int`,
+      count: sql<number>`count(*)::int`,
+      earliest: sql<Date>`min(${conversations.created_at})`,
+    })
+    .from(conversations)
+    .where(lt(conversations.created_at, cutoffDate))
+    .groupBy(
+      conversations.user_id,
+      sql`extract(isoyear from ${conversations.created_at})`,
+      sql`extract(week from ${conversations.created_at})`,
+    );
+}
+
+export async function getConversationsForWeek(
+  userId: UserId,
+  isoYear: number,
+  isoWeek: number,
+) {
+  return db
+    .select()
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.user_id, userId),
+        sql`extract(isoyear from ${conversations.created_at}) = ${isoYear}`,
+        sql`extract(week from ${conversations.created_at}) = ${isoWeek}`,
+      ),
+    )
+    .orderBy(conversations.created_at);
+}
+
+export async function deleteConversationsForWeek(
+  userId: UserId,
+  isoYear: number,
+  isoWeek: number,
+) {
+  const rows = await db
+    .delete(conversations)
+    .where(
+      and(
+        eq(conversations.user_id, userId),
+        sql`extract(isoyear from ${conversations.created_at}) = ${isoYear}`,
+        sql`extract(week from ${conversations.created_at}) = ${isoWeek}`,
+      ),
+    )
+    .returning({ id: conversations.id });
+  return rows.length;
 }
 
 export async function getMonthlyGoals(userId: UserId, monthYYYYMM: string) {

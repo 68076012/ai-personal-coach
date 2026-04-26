@@ -8,13 +8,13 @@ import {
   CalendarDays,
   Home,
   MessageCircle,
-  Settings,
+  Soup,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface TabSpec {
-  key: "home" | "plan" | "chat" | "progress" | "settings";
+  key: "home" | "plan" | "chat" | "progress" | "library";
   href: string;
   icon: LucideIcon;
 }
@@ -24,7 +24,7 @@ const TABS: readonly TabSpec[] = [
   { key: "plan", href: "/dashboard/plan", icon: CalendarDays },
   { key: "chat", href: "/dashboard/chat", icon: MessageCircle },
   { key: "progress", href: "/dashboard/progress", icon: BarChart3 },
-  { key: "settings", href: "/dashboard/settings", icon: Settings },
+  { key: "library", href: "/dashboard/library", icon: Soup },
 ];
 
 export type TabLabels = Record<TabSpec["key"], string>;

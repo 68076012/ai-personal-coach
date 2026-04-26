@@ -24,7 +24,7 @@ export function HiFiShell({
     plan: t("plan", lang),
     chat: t("chat", lang),
     progress: t("progress", lang),
-    settings: t("settings", lang),
+    library: t("library", lang),
   };
   return (
     <div
