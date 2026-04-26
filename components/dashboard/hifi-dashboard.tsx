@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { deleteLogEntry } from "@/app/(app)/dashboard/actions";
 import { HiFiCard, Chip, Bar, BigNum, AppBar, HiFiButton } from "@/components/hifi";
+import { LogMealSheet } from "@/components/dashboard/log-meal-sheet";
 import { t, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import type { DailyPlan, Meal, MorningReport, User, Workout } from "@/lib/db/schema";
@@ -79,6 +80,8 @@ export function HiFiDashboard({
   const goalKcal = user.goal_kcal ?? 0;
   const remaining = goalKcal - macros.kcal;
   const pct = goalKcal > 0 ? Math.max(0, Math.min(100, Math.round((macros.kcal / goalKcal) * 100))) : 0;
+
+  const [sheetOpen, setSheetOpen] = React.useState(false);
 
   // Animated kcal hero — count up briefly so the dashboard feels alive on landing.
   const [animKcal, setAnimKcal] = React.useState(0);
@@ -190,13 +193,19 @@ export function HiFiDashboard({
           </div>
         </section>
 
-        {/* Quick-log tiles */}
+        {/* Quick-log tiles. Log meal opens a BottomSheet form (skip the
+            chat round-trip when macros are known); workout + weight
+            still drop into chat with a prefilled draft because the
+            agent's better at parsing "Squat 80kg 5x5" than a 6-field
+            form. */}
         <div className="grid grid-cols-3 gap-2">
-          <HiFiButton size="tile" asChild>
-            <Link href={`/dashboard/chat?draft=${encodeURIComponent("กินข้าว...")}`}>
-              <UtensilsCrossed className="size-5 text-[var(--leaf)]" />
-              <span>{t("log_meal", lang)}</span>
-            </Link>
+          <HiFiButton
+            size="tile"
+            type="button"
+            onClick={() => setSheetOpen(true)}
+          >
+            <UtensilsCrossed className="size-5 text-[var(--leaf)]" />
+            <span>{t("log_meal", lang)}</span>
           </HiFiButton>
           <HiFiButton size="tile" asChild>
             <Link href={`/dashboard/chat?draft=${encodeURIComponent("ออกกำลัง...")}`}>
@@ -308,6 +317,13 @@ export function HiFiDashboard({
           <ChevronRight className="size-4" />
         </Link>
       </div>
+
+      <LogMealSheet
+        open={sheetOpen}
+        onOpenChange={setSheetOpen}
+        lang={lang}
+        hourBkk={hourBkk}
+      />
     </>
   );
 }
