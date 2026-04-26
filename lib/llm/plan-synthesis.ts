@@ -271,6 +271,17 @@ export async function runPlanSynthesis(
   const wantWorkout = specialists.includes("trainer");
   const wantMeals = specialists.includes("meal_designer");
 
+  // Persist the user message FIRST (before the slow synthesis pipeline).
+  // If the user closes the tab or refreshes while synthesis is in flight,
+  // the chat page still finds their question on reload + can render a
+  // pending placeholder. Wrapped in try/catch so a logging hiccup doesn't
+  // block the actual planning work.
+  try {
+    await logTurn(userId, "orchestrator", "user", message);
+  } catch (err) {
+    console.warn("[plan-synthesis] logTurn(user) failed:", err);
+  }
+
   const [workout, meals] = await Promise.all([
     wantWorkout
       ? draftWorkoutSlice(userId, message, dates, dateLabel, overrideTier)
@@ -335,7 +346,7 @@ export async function runPlanSynthesis(
     },
   ];
   try {
-    await logTurn(userId, "orchestrator", "user", message);
+    // user message was already logged at the start of this function
     await logTurn(
       userId,
       "orchestrator",
@@ -346,7 +357,7 @@ export async function runPlanSynthesis(
   } catch (err) {
     // Logging failure shouldn't break the response — the pending plan is
     // already in the DB and the user can still see it on /dashboard/plan.
-    console.warn("[plan-synthesis] logTurn failed:", err);
+    console.warn("[plan-synthesis] logTurn(assistant) failed:", err);
   }
 
   return {

@@ -89,11 +89,22 @@ function ProposePlanBulkCard({ event, lang }: CardProps) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [pending, startTransition] = useTransition();
-  const [decision, setDecision] = React.useState<"approved" | "rejected" | null>(null);
 
   const data = event.result.data as
     | { pending_id?: string; count?: number; dates?: string[]; status?: string; review_url?: string }
     | undefined;
+  // Initialize the decision state from the (possibly server-rewritten)
+  // status field. The chat page rewrites status with the live value from
+  // pending_plans before passing tool events down, so a card rendering
+  // out of history correctly shows "Apply แล้ว" / "ปฏิเสธแผน" instead of
+  // re-offering the buttons.
+  const initialDecision: "approved" | "rejected" | null =
+    data?.status === "approved"
+      ? "approved"
+      : data?.status === "rejected"
+        ? "rejected"
+        : null;
+  const [decision, setDecision] = React.useState<"approved" | "rejected" | null>(initialDecision);
   const pendingId = data?.pending_id;
   const count = data?.count ?? 0;
   const first = data?.dates?.[0];
