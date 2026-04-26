@@ -150,6 +150,7 @@ async function draftWorkoutSlice(
   message: string,
   dates: string[],
   dateLabel: string,
+  overrideTier?: ModelTier,
 ): Promise<WorkoutItem[]> {
   const ctx = await buildPromptContext(userId, "trainer");
   const datesLine =
@@ -159,7 +160,7 @@ async function draftWorkoutSlice(
   const systemInstruction = `${commonHeader(ctx)}\n\n${DRAFT_TRAINER}\n\n${datesLine}`;
   try {
     const res = await callGemini({
-      tier: "flash",
+      tier: overrideTier ?? "flash",
       systemInstruction,
       contents: [{ role: "user", parts: [{ text: message }] }],
       agent: "trainer",
@@ -189,6 +190,7 @@ async function draftMealSlice(
   message: string,
   dates: string[],
   dateLabel: string,
+  overrideTier?: ModelTier,
 ): Promise<MealItem[]> {
   const ctx = await buildPromptContext(userId, "meal_designer");
   const datesLine =
@@ -198,7 +200,7 @@ async function draftMealSlice(
   const systemInstruction = `${commonHeader(ctx)}\n\n${DRAFT_MEAL_DESIGNER}\n\n${datesLine}`;
   try {
     const res = await callGemini({
-      tier: "flash",
+      tier: overrideTier ?? "flash",
       systemInstruction,
       contents: [{ role: "user", parts: [{ text: message }] }],
       agent: "meal_designer",
@@ -270,8 +272,12 @@ export async function runPlanSynthesis(
   const wantMeals = specialists.includes("meal_designer");
 
   const [workout, meals] = await Promise.all([
-    wantWorkout ? draftWorkoutSlice(userId, message, dates, dateLabel) : Promise.resolve([] as WorkoutItem[]),
-    wantMeals ? draftMealSlice(userId, message, dates, dateLabel) : Promise.resolve([] as MealItem[]),
+    wantWorkout
+      ? draftWorkoutSlice(userId, message, dates, dateLabel, overrideTier)
+      : Promise.resolve([] as WorkoutItem[]),
+    wantMeals
+      ? draftMealSlice(userId, message, dates, dateLabel, overrideTier)
+      : Promise.resolve([] as MealItem[]),
   ]);
 
   // Default to Flash for synthesis — Pro 2.5 with thinking can run 20-40s
