@@ -676,17 +676,24 @@ export async function pruneExpiredAgentMemory() {
 }
 
 // ===== Meal library =====
-export async function listMealLibrary(userId: UserId, limit = 50) {
+// Library is shared across all users in this couples app — both garfield
+// and partner see/use the same meals. The user_id column on meal_library
+// is preserved as an audit trail (whichever user first saved a given
+// dish), but it's intentionally NOT part of read or upsert lookups, so a
+// meal saved by either side is visible to both. The userId param on
+// listMealLibrary/findMealLibraryByName/bumpMealLibraryUsage is kept for
+// signature compatibility with existing callers but is not used in WHERE
+// clauses.
+export async function listMealLibrary(_userId: UserId, limit = 50) {
   return db
     .select()
     .from(meal_library)
-    .where(eq(meal_library.user_id, userId))
     .orderBy(desc(meal_library.last_used_at), desc(meal_library.times_used))
     .limit(limit);
 }
 
 export async function findMealLibraryByName(
-  userId: UserId,
+  _userId: UserId,
   query: string,
   limit = 10,
 ) {
@@ -696,12 +703,9 @@ export async function findMealLibraryByName(
     .select()
     .from(meal_library)
     .where(
-      and(
-        eq(meal_library.user_id, userId),
-        or(
-          ilike(meal_library.name, pattern),
-          ilike(sql`${meal_library.notes}`, pattern),
-        ),
+      or(
+        ilike(meal_library.name, pattern),
+        ilike(sql`${meal_library.notes}`, pattern),
       ),
     )
     .orderBy(desc(meal_library.last_used_at), desc(meal_library.times_used))
@@ -709,16 +713,15 @@ export async function findMealLibraryByName(
 }
 
 export async function upsertMealLibraryEntry(row: NewMealLibraryEntry) {
-  // Check for case-insensitive name match for this user; update if exists, else insert.
+  // Case-insensitive name match across the entire library (no per-user
+  // partition). If both users try to save "ข้าวไก่" they collapse into one
+  // shared row instead of two siloed ones — which is what couples-app
+  // semantics call for. The first-saver's user_id stays on the row as
+  // audit; subsequent updates don't overwrite it.
   const [existing] = await db
     .select()
     .from(meal_library)
-    .where(
-      and(
-        eq(meal_library.user_id, row.user_id),
-        sql`lower(${meal_library.name}) = lower(${row.name})`,
-      ),
-    )
+    .where(sql`lower(${meal_library.name}) = lower(${row.name})`)
     .limit(1);
 
   if (existing) {
@@ -744,7 +747,7 @@ export async function upsertMealLibraryEntry(row: NewMealLibraryEntry) {
   return inserted;
 }
 
-export async function bumpMealLibraryUsage(userId: UserId, name: string) {
+export async function bumpMealLibraryUsage(_userId: UserId, name: string) {
   await db
     .update(meal_library)
     .set({
@@ -752,12 +755,7 @@ export async function bumpMealLibraryUsage(userId: UserId, name: string) {
       last_used_at: new Date(),
       updated_at: new Date(),
     })
-    .where(
-      and(
-        eq(meal_library.user_id, userId),
-        sql`lower(${meal_library.name}) = lower(${name})`,
-      ),
-    );
+    .where(sql`lower(${meal_library.name}) = lower(${name})`);
 }
 
 // ===== Pending (draft) plans =====

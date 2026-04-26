@@ -11,7 +11,7 @@ import {
   upsertDailyPlan,
 } from "@/lib/db/queries";
 import { db, schema } from "@/lib/db/client";
-import { and, eq, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { asMealArray, type MealItem } from "@/lib/plan-types";
 import type { UserId, MealType } from "@/lib/db/schema";
 
@@ -32,14 +32,13 @@ export async function useSavedMeal(input: z.infer<typeof UseMealInput>) {
   if (!parsed.success) throw new Error("bad_input");
   const userId = session.userId as UserId;
 
+  // Library is shared across users — look up by name only, regardless of
+  // which user originally saved the entry.
   const [entry] = await db
     .select()
     .from(schema.meal_library)
     .where(
-      and(
-        eq(schema.meal_library.user_id, userId),
-        sql`lower(${schema.meal_library.name}) = lower(${parsed.data.name})`,
-      ),
+      sql`lower(${schema.meal_library.name}) = lower(${parsed.data.name})`,
     )
     .limit(1);
   if (!entry) throw new Error("meal_not_in_library");
@@ -82,10 +81,7 @@ export async function addToTodayPlan(input: z.infer<typeof AddToPlanInput>) {
     .select()
     .from(schema.meal_library)
     .where(
-      and(
-        eq(schema.meal_library.user_id, userId),
-        sql`lower(${schema.meal_library.name}) = lower(${parsed.data.name})`,
-      ),
+      sql`lower(${schema.meal_library.name}) = lower(${parsed.data.name})`,
     )
     .limit(1);
   if (!entry) throw new Error("meal_not_in_library");
