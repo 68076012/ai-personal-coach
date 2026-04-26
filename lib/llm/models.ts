@@ -1,22 +1,32 @@
-export type ModelTier = "pro" | "flash" | "flash-lite";
+export type ModelTier = "pro" | "flash" | "flash-lite" | "kimi";
 
+// Display IDs. For Kimi, the actual API model id is configurable via
+// MOONSHOT_MODEL env (default "kimi-k2.6").
 export const GEMINI_MODEL: Record<ModelTier, string> = {
   pro: "gemini-2.5-pro",
   flash: "gemini-2.5-flash",
   "flash-lite": "gemini-2.5-flash-lite",
+  kimi: process.env.MOONSHOT_MODEL ?? "kimi-k2.6",
 };
 
+// Kimi sits at the end of every Gemini chain as a paid last-resort.
 export const FALLBACK_CHAIN: Record<ModelTier, ModelTier[]> = {
-  pro: ["pro", "flash", "flash-lite"],
-  flash: ["flash", "flash-lite"],
-  "flash-lite": ["flash-lite"],
+  pro: ["pro", "flash", "flash-lite", "kimi"],
+  flash: ["flash", "flash-lite", "kimi"],
+  "flash-lite": ["flash-lite", "kimi"],
+  kimi: ["kimi"],
 };
 
 export const DAILY_CALL_CAP: Record<ModelTier, number> = {
   pro: 90,
   flash: 230,
   "flash-lite": 950,
+  kimi: 30, // paid — hard cap to prevent runaway cost
 };
+
+export function isKimiTier(tier: ModelTier): boolean {
+  return tier === "kimi";
+}
 
 export type AgentName =
   | "orchestrator"

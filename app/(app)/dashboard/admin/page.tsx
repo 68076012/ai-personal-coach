@@ -113,11 +113,13 @@ export default async function AdminPage() {
               </thead>
               <tbody>
                 {usage.map((u) => {
-                  const tier = u.model.includes("pro")
-                    ? "pro"
-                    : u.model.includes("lite")
-                      ? "flash-lite"
-                      : "flash";
+                  const tier = u.model.includes("kimi") || u.model.includes("moonshot")
+                    ? "kimi"
+                    : u.model.includes("pro")
+                      ? "pro"
+                      : u.model.includes("lite")
+                        ? "flash-lite"
+                        : "flash";
                   const cap = DAILY_CALL_CAP[tier as keyof typeof DAILY_CALL_CAP];
                   const pct = cap ? Math.round((u.total / cap) * 100) : null;
                   return (
