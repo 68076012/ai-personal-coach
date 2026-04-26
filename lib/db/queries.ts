@@ -301,6 +301,47 @@ export async function getConversationHistory(
 }
 
 // ===== Daily logs (weight, mood) =====
+export async function upsertDailyLog(row: {
+  user_id: UserId;
+  date: string; // YYYY-MM-DD
+  weight_kg?: number | null;
+  sleep_hours?: number | null;
+  mood?: string | null;
+  energy?: number | null;
+  notes?: string | null;
+}) {
+  const [r] = await db
+    .insert(daily_logs)
+    .values(row)
+    .onConflictDoUpdate({
+      target: [daily_logs.user_id, daily_logs.date],
+      set: {
+        weight_kg: row.weight_kg ?? sql`excluded.weight_kg`,
+        sleep_hours: row.sleep_hours ?? sql`excluded.sleep_hours`,
+        mood: row.mood ?? sql`excluded.mood`,
+        energy: row.energy ?? sql`excluded.energy`,
+        notes: row.notes ?? sql`excluded.notes`,
+      },
+    })
+    .returning();
+  return r;
+}
+
+export async function getLatestWeightLog(userId: UserId) {
+  const [r] = await db
+    .select()
+    .from(daily_logs)
+    .where(
+      and(
+        eq(daily_logs.user_id, userId),
+        sql`${daily_logs.weight_kg} IS NOT NULL`,
+      ),
+    )
+    .orderBy(desc(daily_logs.date))
+    .limit(1);
+  return r ?? null;
+}
+
 export async function getRecentDailyLogs(userId: UserId, days = 30) {
   const since = new Date();
   since.setDate(since.getDate() - days);

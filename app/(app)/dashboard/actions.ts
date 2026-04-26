@@ -9,7 +9,10 @@ import {
   deleteMealById,
   deleteWorkoutById,
   insertMeal,
+  updateUser,
+  upsertDailyLog,
 } from "@/lib/db/queries";
+import { formatInTimeZone } from "date-fns-tz";
 import type { Meal, MealType, UserId, Workout } from "@/lib/db/schema";
 
 const DeleteEntryInput = z.object({
@@ -54,6 +57,33 @@ export async function quickLogMeal(input: z.infer<typeof QuickLogMealInput>) {
   bumpMealLibraryUsage(userId, parsed.data.food_name).catch(() => {});
   revalidatePath("/dashboard");
   return { ok: true, id: row.id, kcal: row.kcal };
+}
+
+// Quick-log weight from the dashboard. Upserts daily_logs by (user_id,
+// date) so re-weighing later in the same day overwrites the morning's
+// reading. Also bumps users.current_weight_kg so prompts/header reflect
+// the latest reading without waiting for the next morning report.
+const QuickLogWeightInput = z.object({
+  weight_kg: z.number().positive().max(400),
+});
+
+export async function quickLogWeight(input: z.infer<typeof QuickLogWeightInput>) {
+  const session = await getSession();
+  if (!session.userId) throw new Error("unauthenticated");
+  const parsed = QuickLogWeightInput.safeParse(input);
+  if (!parsed.success) throw new Error("invalid_weight");
+  const userId = session.userId as UserId;
+  const today = formatInTimeZone(new Date(), "Asia/Bangkok", "yyyy-MM-dd");
+  await upsertDailyLog({
+    user_id: userId,
+    date: today,
+    weight_kg: parsed.data.weight_kg,
+  });
+  await updateUser(userId, { current_weight_kg: parsed.data.weight_kg });
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/progress");
+  revalidatePath("/dashboard/couple");
+  return { ok: true, weight_kg: parsed.data.weight_kg };
 }
 
 // User-driven delete from the dashboard "Recent" list. Same write path

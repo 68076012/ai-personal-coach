@@ -23,6 +23,7 @@ import {
 import { deleteLogEntry, restoreLogEntry } from "@/app/(app)/dashboard/actions";
 import { HiFiCard, Chip, Bar, BigNum, AppBar, HiFiButton } from "@/components/hifi";
 import { LogMealSheet } from "@/components/dashboard/log-meal-sheet";
+import { LogWeightSheet } from "@/components/dashboard/log-weight-sheet";
 import { t, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import type { DailyPlan, Meal, MorningReport, User, Workout } from "@/lib/db/schema";
@@ -85,6 +86,7 @@ export function HiFiDashboard({
   const pct = goalKcal > 0 ? Math.max(0, Math.min(100, Math.round((macros.kcal / goalKcal) * 100))) : 0;
 
   const [sheetOpen, setSheetOpen] = React.useState(false);
+  const [weightSheetOpen, setWeightSheetOpen] = React.useState(false);
 
   // Animated kcal hero — count up briefly so the dashboard feels alive on landing.
   const [animKcal, setAnimKcal] = React.useState(0);
@@ -216,11 +218,13 @@ export function HiFiDashboard({
               <span>{t("log_workout", lang)}</span>
             </Link>
           </HiFiButton>
-          <HiFiButton size="tile" asChild>
-            <Link href={`/dashboard/chat?draft=${encodeURIComponent("น้ำหนักวันนี้...")}`}>
-              <TrendingUp className="size-5 text-[var(--sky)]" />
-              <span>{t("log_weight", lang)}</span>
-            </Link>
+          <HiFiButton
+            size="tile"
+            type="button"
+            onClick={() => setWeightSheetOpen(true)}
+          >
+            <TrendingUp className="size-5 text-[var(--sky)]" />
+            <span>{t("log_weight", lang)}</span>
           </HiFiButton>
         </div>
 
@@ -328,6 +332,12 @@ export function HiFiDashboard({
         onOpenChange={setSheetOpen}
         lang={lang}
         hourBkk={hourBkk}
+      />
+      <LogWeightSheet
+        open={weightSheetOpen}
+        onOpenChange={setWeightSheetOpen}
+        lang={lang}
+        initialWeight={user.current_weight_kg ?? null}
       />
     </>
   );
