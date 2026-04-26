@@ -155,6 +155,7 @@ function DayPreview({ day }: { day: PendingPlanDay }) {
 
 function formatSource(s: string): string {
   const map: Record<string, string> = {
+    "chat:orchestrator": "Coach (orchestrated)",
     "chat:trainer": "Trainer",
     "chat:meal_designer": "Meal Designer",
     "chat:nutritionist": "Nutritionist",

@@ -3,12 +3,26 @@
 import * as React from "react";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Camera, Mic, Send, Square } from "lucide-react";
+import { ChevronDown, Send, Sparkles, Square } from "lucide-react";
 import { toast } from "sonner";
 import { HiFiAgentBadge, type AgentKey } from "./hifi-agent-badge";
 import { HiFiToolCard, type ToolEvent } from "./hifi-tool-card";
 import { type Lang, t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
+
+type ModelChoice = "auto" | "pro" | "flash" | "flash-lite" | "kimi";
+
+const MODEL_LABEL: Record<ModelChoice, string> = {
+  auto: "Auto",
+  pro: "Pro",
+  flash: "Flash",
+  "flash-lite": "Lite",
+  kimi: "Kimi",
+};
+
+const MODEL_ORDER: ModelChoice[] = ["auto", "pro", "flash", "flash-lite", "kimi"];
+
+const MODEL_STORAGE_KEY = "chat:model";
 
 export interface HiFiChatMessageData {
   id: string;
@@ -35,9 +49,42 @@ export function HiFiChatPanel({
   const [messages, setMessages] = useState<HiFiChatMessageData[]>(initialMessages);
   const [input, setInput] = useState(initialDraft);
   const [pending, startTransition] = useTransition();
+  const [model, setModel] = useState<ModelChoice>("auto");
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const modelMenuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+
+  // Hydrate model choice from localStorage after mount (avoids SSR mismatch).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = window.localStorage.getItem(MODEL_STORAGE_KEY);
+    if (saved && (MODEL_ORDER as string[]).includes(saved)) {
+      setModel(saved as ModelChoice);
+    }
+  }, []);
+
+  // Close menu when clicking outside.
+  useEffect(() => {
+    if (!modelMenuOpen) return;
+    function onDoc(ev: MouseEvent) {
+      if (!modelMenuRef.current) return;
+      if (!modelMenuRef.current.contains(ev.target as Node)) {
+        setModelMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [modelMenuOpen]);
+
+  function chooseModelChoice(next: ModelChoice) {
+    setModel(next);
+    setModelMenuOpen(false);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(MODEL_STORAGE_KEY, next);
+    }
+  }
 
   // Run after every paint so the scroll area is laid out with its real
   // height before we ask it to scroll. First paint = "auto" (instant) so
@@ -80,7 +127,7 @@ export function HiFiChatPanel({
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ message: text, agent: defaultAgent }),
+          body: JSON.stringify({ message: text, agent: defaultAgent, model }),
           signal: ctrl.signal,
         });
         const json = await res.json();
@@ -180,22 +227,64 @@ export function HiFiChatPanel({
         style={{ paddingBottom: "max(env(safe-area-inset-bottom), 8px)" }}
       >
         <div className="mx-auto flex w-full max-w-2xl items-end gap-2">
-          {/* Voice + camera placeholders — Phase 2 in original spec, render
-              disabled tap-targets so the composer feels complete */}
-          <button
-            disabled
-            aria-label={lang === "th" ? "เสียง (เร็วๆ นี้)" : "Voice (soon)"}
-            className="size-10 rounded-full bg-[var(--surface-2)] text-[var(--ink-3)] inline-flex items-center justify-center opacity-50 cursor-not-allowed shrink-0"
-          >
-            <Mic className="size-4" />
-          </button>
-          <button
-            disabled
-            aria-label={lang === "th" ? "ถ่ายอาหาร (เร็วๆ นี้)" : "Camera (soon)"}
-            className="size-10 rounded-full bg-[var(--surface-2)] text-[var(--ink-3)] inline-flex items-center justify-center opacity-50 cursor-not-allowed shrink-0"
-          >
-            <Camera className="size-4" />
-          </button>
+          {/* Model selector — replaces the old mic/camera placeholders.
+              Forces a specific Gemini/Kimi tier server-side; "Auto" defers
+              to chooseModel(). The fallback chain in client.ts still kicks
+              in if the chosen tier is unavailable. */}
+          <div ref={modelMenuRef} className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => setModelMenuOpen((v) => !v)}
+              aria-label={lang === "th" ? "เลือกโมเดล" : "Choose model"}
+              aria-haspopup="menu"
+              aria-expanded={modelMenuOpen}
+              title={
+                lang === "th"
+                  ? `โมเดล: ${MODEL_LABEL[model]}`
+                  : `Model: ${MODEL_LABEL[model]}`
+              }
+              className={cn(
+                "h-10 px-2.5 rounded-full inline-flex items-center gap-1 text-xs font-medium",
+                "bg-[var(--surface-2)] text-[var(--ink-2)] hover:text-[var(--ink)]",
+                "transition-colors active:scale-[0.97]",
+              )}
+            >
+              <Sparkles className="size-3.5" />
+              <span className="tabular-nums">{MODEL_LABEL[model]}</span>
+              <ChevronDown className="size-3" />
+            </button>
+            {modelMenuOpen && (
+              <div
+                role="menu"
+                className={cn(
+                  "absolute bottom-12 left-0 z-50 min-w-[140px] rounded-[12px] border border-[var(--line)]",
+                  "bg-[var(--surface)] shadow-lg p-1",
+                )}
+              >
+                {MODEL_ORDER.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={model === m}
+                    onClick={() => chooseModelChoice(m)}
+                    className={cn(
+                      "w-full text-left px-2.5 py-1.5 rounded-[8px] text-xs",
+                      "hover:bg-[var(--surface-2)] transition-colors",
+                      model === m
+                        ? "bg-[var(--accent-soft)] text-[var(--accent)] font-semibold"
+                        : "text-[var(--ink-2)]",
+                    )}
+                  >
+                    {MODEL_LABEL[m]}
+                    {m === "kimi" && (
+                      <span className="ml-1 text-[10px] text-[var(--ink-3)]">paid</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}

@@ -21,7 +21,11 @@ export const DAILY_CALL_CAP: Record<ModelTier, number> = {
   pro: 90,
   flash: 230,
   "flash-lite": 950,
-  kimi: 30, // paid — hard cap to prevent runaway cost
+  // Paid balance pre-loaded on Moonshot — typical chat call is ~$0.001-0.003,
+  // so the topped-up balance covers thousands of calls/month. Cap removed; the
+  // billing console is the real backstop. Use Infinity as sentinel so the cap
+  // check + admin progress bar treat it as "no limit".
+  kimi: Number.POSITIVE_INFINITY,
 };
 
 export function isKimiTier(tier: ModelTier): boolean {

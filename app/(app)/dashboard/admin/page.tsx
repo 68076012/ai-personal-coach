@@ -112,7 +112,8 @@ export default async function AdminPage() {
                       ? "flash-lite"
                       : "flash";
                 const cap = DAILY_CALL_CAP[tier as keyof typeof DAILY_CALL_CAP];
-                const pct = cap ? Math.round((u.total / cap) * 100) : null;
+                const capped = Number.isFinite(cap);
+                const pct = capped ? Math.round((u.total / cap) * 100) : null;
                 const barColor =
                   pct !== null && pct >= 80 ? "coral" : pct !== null && pct >= 50 ? "sun" : "leaf";
                 return (
@@ -121,13 +122,13 @@ export default async function AdminPage() {
                       <span className="font-mono text-xs text-[var(--ink-2)]">{u.model}</span>
                       <span className="tabular text-xs text-[var(--ink-3)]">
                         <b className="text-[var(--ink)] font-semibold">{u.total}</b>
-                        {cap && ` / ${cap}`}
+                        {capped ? ` / ${cap}` : " · no limit"}
                         {u.errors > 0 && (
                           <span className="ml-1.5 text-[var(--coral)]">· {u.errors} err</span>
                         )}
                       </span>
                     </div>
-                    {cap && <Bar value={u.total} max={cap} color={barColor} />}
+                    {capped && <Bar value={u.total} max={cap} color={barColor} />}
                     <div className="text-[10px] text-[var(--ink-3)] tabular">
                       tokens {u.inputTokens.toLocaleString()} in /{" "}
                       {u.outputTokens.toLocaleString()} out

@@ -170,15 +170,16 @@ export async function callGemini(
 
   for (const tier of chain) {
     const used = incrementCount(tier);
-    if (used > DAILY_CALL_CAP[tier]) {
+    const cap = DAILY_CALL_CAP[tier];
+    if (Number.isFinite(cap) && used > cap) {
       console.warn(
-        `[llm] daily cap reached for ${tier} (${used}/${DAILY_CALL_CAP[tier]}); falling through`,
+        `[llm] daily cap reached for ${tier} (${used}/${cap}); falling through`,
       );
       attempts.push({
         tier,
         model: GEMINI_MODEL[tier],
         cause: "cap_reached",
-        error: `daily cap (${DAILY_CALL_CAP[tier]}) reached`,
+        error: `daily cap (${cap}) reached`,
       });
       continue;
     }
