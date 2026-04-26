@@ -1,7 +1,9 @@
 "use client";
 
 import * as React from "react";
+import { useTransition } from "react";
 import Link from "next/link";
+import { toast } from "sonner";
 import {
   ChevronRight,
   Dumbbell,
@@ -13,7 +15,9 @@ import {
   UtensilsCrossed,
   Check,
   Circle,
+  X,
 } from "lucide-react";
+import { deleteLogEntry } from "@/app/(app)/dashboard/actions";
 import { HiFiCard, Chip, Bar, BigNum, AppBar, HiFiButton } from "@/components/hifi";
 import { t, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -267,30 +271,26 @@ export function HiFiDashboard({
             </div>
             <div className="space-y-2">
               {meals.slice(0, 2).map((m) => (
-                <HiFiCard key={m.id} className="p-3 flex items-center gap-3">
-                  <div className="size-9 rounded-[10px] bg-[var(--leaf-soft)] text-[var(--leaf)] flex items-center justify-center shrink-0">
-                    <UtensilsCrossed className="size-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">{m.food_name}</div>
-                    <div className="text-xs text-[var(--ink-3)]">
-                      {m.kcal} {t("kcal_short", lang)} · P{Math.round(m.protein_g)}g
-                    </div>
-                  </div>
-                </HiFiCard>
+                <RecentLogRow
+                  key={m.id}
+                  id={m.id}
+                  table="meals"
+                  icon="meal"
+                  title={m.food_name}
+                  meta={`${m.kcal} ${t("kcal_short", lang)} · P${Math.round(m.protein_g)}g`}
+                  lang={lang}
+                />
               ))}
               {workouts.slice(0, 1).map((w) => (
-                <HiFiCard key={w.id} className="p-3 flex items-center gap-3">
-                  <div className="size-9 rounded-[10px] bg-[var(--sun-soft)] text-[#8a6712] flex items-center justify-center shrink-0">
-                    <Dumbbell className="size-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">{w.exercise}</div>
-                    <div className="text-xs text-[var(--ink-3)]">
-                      {w.sets ?? "?"}×{w.reps ?? "?"}{w.weight_kg ? ` @ ${w.weight_kg}kg` : ""}
-                    </div>
-                  </div>
-                </HiFiCard>
+                <RecentLogRow
+                  key={w.id}
+                  id={w.id}
+                  table="workouts"
+                  icon="workout"
+                  title={w.exercise}
+                  meta={`${w.sets ?? "?"}×${w.reps ?? "?"}${w.weight_kg ? ` @ ${w.weight_kg}kg` : ""}`}
+                  lang={lang}
+                />
               ))}
             </div>
           </div>
@@ -309,6 +309,68 @@ export function HiFiDashboard({
         </Link>
       </div>
     </>
+  );
+}
+
+function RecentLogRow({
+  id,
+  table,
+  icon,
+  title,
+  meta,
+  lang,
+}: {
+  id: string;
+  table: "meals" | "workouts";
+  icon: "meal" | "workout";
+  title: string;
+  meta: string;
+  lang: Lang;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [hidden, setHidden] = React.useState(false);
+
+  function onDelete() {
+    if (!confirm(lang === "th" ? "ลบรายการนี้? undo ไม่ได้" : "Delete this entry? Undo is not available.")) return;
+    startTransition(async () => {
+      try {
+        await deleteLogEntry({ table, id });
+        setHidden(true);
+        toast.success(lang === "th" ? "ลบแล้ว" : "Deleted");
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Delete failed");
+      }
+    });
+  }
+
+  if (hidden) return null;
+
+  return (
+    <HiFiCard className="p-3 flex items-center gap-3">
+      <div
+        className={cn(
+          "size-9 rounded-[10px] flex items-center justify-center shrink-0",
+          icon === "workout"
+            ? "bg-[var(--sun-soft)] text-[#8a6712]"
+            : "bg-[var(--leaf-soft)] text-[var(--leaf)]",
+        )}
+      >
+        {icon === "workout" ? <Dumbbell className="size-4" /> : <UtensilsCrossed className="size-4" />}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium truncate">{title}</div>
+        <div className="text-xs text-[var(--ink-3)]">{meta}</div>
+      </div>
+      <button
+        type="button"
+        onClick={onDelete}
+        disabled={pending}
+        aria-label={lang === "th" ? "ลบ" : "Delete"}
+        className="size-7 rounded-full inline-flex items-center justify-center text-[var(--ink-4)] hover:bg-[var(--surface-2)] hover:text-[var(--coral)] transition-colors shrink-0 disabled:opacity-50"
+      >
+        <X className="size-3.5" />
+      </button>
+    </HiFiCard>
   );
 }
 

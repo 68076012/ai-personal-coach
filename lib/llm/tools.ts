@@ -3,6 +3,8 @@ import { z } from "zod";
 import {
   appendConversation,
   bumpMealLibraryUsage,
+  deleteMealById,
+  deleteWorkoutById,
   findMealLibraryByName,
   getDailyMacroSummary,
   getDailyPlan,
@@ -80,6 +82,11 @@ const GetHistorySummaryArgs = z.object({
 const SearchMemoryArgs = z.object({
   query: z.string().min(1).max(120),
   limit: z.number().int().positive().max(20).default(8),
+});
+
+const DeleteLogEntryArgs = z.object({
+  table: z.enum(["meals", "workouts"]),
+  id: z.string().uuid(),
 });
 
 const SaveMealArgs = z.object({
@@ -413,6 +420,20 @@ export const TOOL_DECLARATIONS: Record<string, FunctionDeclaration> = {
       required: ["field", "value"],
     },
   },
+  delete_log_entry: {
+    name: "delete_log_entry",
+    description:
+      "ลบ entry ใน meals หรือ workouts ตาม id. ใช้เมื่อ user บอกว่าบันทึกผิด เช่น 'ลบมื้อเที่ยงเมื่อกี้ บันทึกซ้ำ' หรือ 'ลบ squat ที่บันทึกผิด'. " +
+      "ขั้นตอน: เรียก get_history เพื่อหา id ก่อนเสมอ — entry ใหม่ๆ อยู่บนสุด. ถ้า user บอกชัดๆ ว่าอันไหน ให้เลือกตามที่บอก. ถ้าไม่ชัด ให้ถามก่อนลบ — undo ไม่ได้.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        table: { type: Type.STRING, enum: ["meals", "workouts"] },
+        id: { type: Type.STRING, description: "uuid ของ row" },
+      },
+      required: ["table", "id"],
+    },
+  },
   search_memory: {
     name: "search_memory",
     description:
@@ -570,6 +591,7 @@ export function declarationsForAgent(
     case "trainer":
       return [
         TOOL_DECLARATIONS.log_workout,
+        TOOL_DECLARATIONS.delete_log_entry,
         TOOL_DECLARATIONS.update_plan,
         TOOL_DECLARATIONS.propose_plan_bulk,
         TOOL_DECLARATIONS.update_memory,
@@ -582,6 +604,7 @@ export function declarationsForAgent(
     case "nutritionist":
       return [
         TOOL_DECLARATIONS.log_meal,
+        TOOL_DECLARATIONS.delete_log_entry,
         TOOL_DECLARATIONS.update_memory,
         TOOL_DECLARATIONS.update_profile,
         TOOL_DECLARATIONS.get_history,
@@ -818,6 +841,18 @@ export async function executeTool(
             old_value: oldVal ?? null,
             new_value: parsed.value,
           },
+        };
+      }
+      case "delete_log_entry": {
+        const a = DeleteLogEntryArgs.parse(args);
+        const row =
+          a.table === "meals"
+            ? await deleteMealById(ctx.userId, a.id)
+            : await deleteWorkoutById(ctx.userId, a.id);
+        if (!row) return { ok: false, error: "not_found" };
+        return {
+          ok: true,
+          data: { table: a.table, id: a.id, deleted: true },
         };
       }
       case "search_memory": {

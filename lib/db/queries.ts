@@ -75,6 +75,22 @@ export async function insertWorkout(row: NewWorkout) {
   return w;
 }
 
+export async function deleteMealById(userId: UserId, id: string) {
+  const [row] = await db
+    .delete(meals)
+    .where(and(eq(meals.id, id), eq(meals.user_id, userId)))
+    .returning();
+  return row ?? null;
+}
+
+export async function deleteWorkoutById(userId: UserId, id: string) {
+  const [row] = await db
+    .delete(workouts)
+    .where(and(eq(workouts.id, id), eq(workouts.user_id, userId)))
+    .returning();
+  return row ?? null;
+}
+
 export async function getWorkoutsSince(userId: UserId, since: Date) {
   return db
     .select()
