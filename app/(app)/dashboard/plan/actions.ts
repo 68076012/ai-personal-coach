@@ -7,6 +7,7 @@ import {
   approvePendingPlan as approvePendingPlanQuery,
   rejectPendingPlan as rejectPendingPlanQuery,
   setWorkoutPaused,
+  togglePlanItemDone,
   upsertDailyPlan,
 } from "@/lib/db/queries";
 import { PlanSchema } from "@/lib/plan-types";
@@ -68,6 +69,29 @@ export async function rejectPendingPlan(input: z.infer<typeof PendingActionInput
     session.userId as UserId,
   );
   if (!row) throw new Error("not_found");
+  revalidatePath("/dashboard/plan");
+  return { ok: true };
+}
+
+const TogglePlanItemDoneInput = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  kind: z.enum(["workout", "meal"]),
+  index: z.number().int().nonnegative().max(40),
+  done: z.boolean(),
+});
+
+export async function togglePlanItemDoneAction(
+  input: z.infer<typeof TogglePlanItemDoneInput>,
+) {
+  const session = await getSession();
+  if (!session.userId) throw new Error("unauthenticated");
+  const parsed = TogglePlanItemDoneInput.safeParse(input);
+  if (!parsed.success) throw new Error("bad_input");
+  await togglePlanItemDone({
+    user_id: session.userId as UserId,
+    ...parsed.data,
+  });
+  revalidatePath("/dashboard");
   revalidatePath("/dashboard/plan");
   return { ok: true };
 }

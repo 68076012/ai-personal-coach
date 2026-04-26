@@ -87,19 +87,40 @@ export function HiFiChatPanel({
         if (!res.ok || !json.ok) {
           throw new Error(json.message ?? json.error ?? "request failed");
         }
-        setMessages((m) =>
-          m.map((msg) =>
-            msg.id === placeholderId
-              ? {
-                  ...msg,
-                  pending: false,
-                  content: json.reply,
-                  agent: json.agent as AgentKey,
-                  toolEvents: json.toolEvents,
-                }
-              : msg,
-          ),
-        );
+        // Multi-agent dispatch: API returns { ok, replies: [{agent, reply,
+        // toolEvents}, ...] }. Replace the placeholder with the first reply
+        // and append the rest as fresh assistant bubbles below it.
+        const replies: Array<{
+          agent: AgentKey;
+          reply: string;
+          toolEvents: ToolEvent[];
+        }> = json.replies ?? (json.reply
+          ? [{ agent: json.agent, reply: json.reply, toolEvents: json.toolEvents ?? [] }]
+          : []);
+        if (replies.length === 0) {
+          throw new Error("empty response");
+        }
+        setMessages((m) => {
+          const out: HiFiChatMessageData[] = [];
+          for (const msg of m) {
+            if (msg.id !== placeholderId) {
+              out.push(msg);
+              continue;
+            }
+            // Replace placeholder with first reply, then push additional ones.
+            replies.forEach((r, i) => {
+              out.push({
+                id: i === 0 ? placeholderId : crypto.randomUUID(),
+                role: "assistant",
+                pending: false,
+                content: r.reply,
+                agent: r.agent,
+                toolEvents: r.toolEvents,
+              });
+            });
+          }
+          return out;
+        });
         router.refresh();
       } catch (err) {
         const aborted = (err as { name?: string }).name === "AbortError";

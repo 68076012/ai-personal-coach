@@ -11,6 +11,7 @@ import {
   index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const users = pgTable("users", {
   id: text("id").primaryKey(),
@@ -154,6 +155,10 @@ export const daily_plans = pgTable(
     meal_plan: jsonb("meal_plan"),
     notes: text("notes"),
     workout_paused: boolean("workout_paused").default(false).notNull(),
+    // Tracks which array indices have been "ticked off" in the UI.
+    // Shape: { workout_done: number[], meal_done: number[] }. Stored as
+    // jsonb for cheap partial updates and a simple read path.
+    completion: jsonb("completion").default(sql`'{}'::jsonb`),
     generated_at: timestamp("generated_at").defaultNow().notNull(),
     updated_at: timestamp("updated_at").defaultNow().notNull(),
   },

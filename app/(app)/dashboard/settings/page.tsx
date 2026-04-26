@@ -2,6 +2,7 @@ import { getSession } from "@/lib/auth";
 import { getUser } from "@/lib/db/queries";
 import { GoalEditor } from "@/components/dashboard/goal-editor";
 import { DangerZone } from "@/components/dashboard/danger-zone";
+import { AccountControls } from "@/components/dashboard/account-controls";
 import { AppBar, HiFiCard, LangToggle, ThemeToggle } from "@/components/hifi";
 import { getLang } from "@/lib/i18n/server";
 import { t } from "@/lib/i18n";
@@ -72,6 +73,7 @@ export default async function SettingsPage() {
         </HiFiCard>
 
         <GoalEditor user={user} />
+        <AccountControls userName={user.name} lang={lang} />
         <DangerZone userName={user.name} />
       </div>
     </>

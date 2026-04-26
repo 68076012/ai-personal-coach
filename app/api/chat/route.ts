@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getSession } from "@/lib/auth";
 import { LLMChainError, type LLMChainKind } from "@/lib/llm/client";
 import { runAgent } from "@/lib/llm/runtime";
-import { routeMessage, specialistFor } from "@/lib/llm/orchestrator";
+import { routeMessage, specialistsFor } from "@/lib/llm/orchestrator";
 import {
   TRAINER_PROMPT,
   NUTRITIONIST_PROMPT,
@@ -48,45 +48,57 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "bad_input" }, { status: 400 });
   }
 
-  let agent: keyof typeof PROMPT_BY_AGENT;
+  let agents: Array<keyof typeof PROMPT_BY_AGENT>;
   let routedNotice: string | null = null;
 
   if (parsed.data.agent === "auto") {
     const routed = await routeMessage(parsed.data.message);
-    if (routed.confidence < 0.6 && routed.agent !== "general") {
-      // Borderline → ask user to disambiguate (non-blocking helper, then fall through)
+    if (routed.confidence < 0.6 && !routed.agents.includes("general")) {
+      // Borderline → ask user to disambiguate (single short reply)
       routedNotice =
         "ยังไม่แน่ใจว่าควรให้ใครตอบดี ลองบอกเพิ่มอีกนิดได้มั้ย? เช่น เกี่ยวกับมื้ออาหาร, ออกกำลังกาย, แผนพรุ่งนี้?";
     }
-    agent = specialistFor(routed.agent);
+    agents = specialistsFor(routed.agents);
   } else {
-    agent = parsed.data.agent;
+    agents = [parsed.data.agent];
   }
 
   if (routedNotice) {
     return NextResponse.json({
       ok: true,
-      reply: routedNotice,
-      agent: "orchestrator",
-      toolEvents: [],
+      replies: [
+        {
+          agent: "orchestrator",
+          reply: routedNotice,
+          toolEvents: [],
+        },
+      ],
     });
   }
 
   try {
-    const result = await runAgent({
-      userId: session.userId,
-      agent,
-      userMessage: parsed.data.message,
-      systemSuffix: PROMPT_BY_AGENT[agent],
-      task: agent === "reporter" ? "report" : "chat",
-      persistConversation: true,
-    });
-    return NextResponse.json({
-      ok: true,
-      reply: result.reply,
-      agent: result.agent,
-      toolEvents: result.toolEvents,
-    });
+    // Sequential dispatch — each agent runs against the same user message
+    // but with its own conversation history (filtered by agent_type).
+    // The user's message is logged separately under each agent_type, which
+    // is what the prior single-agent flow did too — keeps each specialist's
+    // context independent.
+    const replies: Array<{ agent: string; reply: string; toolEvents: unknown[] }> = [];
+    for (const agent of agents) {
+      const result = await runAgent({
+        userId: session.userId,
+        agent,
+        userMessage: parsed.data.message,
+        systemSuffix: PROMPT_BY_AGENT[agent],
+        task: agent === "reporter" ? "report" : "chat",
+        persistConversation: true,
+      });
+      replies.push({
+        agent: result.agent,
+        reply: result.reply,
+        toolEvents: result.toolEvents,
+      });
+    }
+    return NextResponse.json({ ok: true, replies });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[/api/chat]", err);
