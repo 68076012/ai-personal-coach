@@ -11,8 +11,10 @@ import {
   DAILY_CALL_CAP,
   FALLBACK_CHAIN,
   GEMINI_MODEL,
+  isKimiTier,
   type ModelTier,
 } from "./models";
+import { callKimi } from "./kimi";
 
 let cachedClient: GoogleGenAI | null = null;
 
@@ -77,21 +79,27 @@ export async function callGemini(
     }
     const startedAt = Date.now();
     try {
-      const client = getClient();
-      const res = await client.models.generateContent({
-        model: GEMINI_MODEL[tier],
-        contents: params.contents,
-        config: {
-          systemInstruction: params.systemInstruction,
-          tools: params.tools?.length
-            ? [{ functionDeclarations: params.tools }]
-            : undefined,
-          temperature: 0.7,
-          ...(params.thinkingBudget !== undefined && {
-            thinkingConfig: { thinkingBudget: params.thinkingBudget },
-          }),
-        },
-      });
+      const res = isKimiTier(tier)
+        ? await callKimi({
+            systemInstruction: params.systemInstruction,
+            contents: params.contents,
+            tools: params.tools,
+            temperature: 0.7,
+          })
+        : await getClient().models.generateContent({
+            model: GEMINI_MODEL[tier],
+            contents: params.contents,
+            config: {
+              systemInstruction: params.systemInstruction,
+              tools: params.tools?.length
+                ? [{ functionDeclarations: params.tools }]
+                : undefined,
+              temperature: 0.7,
+              ...(params.thinkingBudget !== undefined && {
+                thinkingConfig: { thinkingBudget: params.thinkingBudget },
+              }),
+            },
+          });
 
       void recordCall({
         model: GEMINI_MODEL[tier],
