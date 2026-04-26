@@ -732,6 +732,7 @@ export async function upsertMealLibraryEntry(row: NewMealLibraryEntry) {
         fat_g: row.fat_g,
         prep_min: row.prep_min ?? existing.prep_min,
         ingredients: row.ingredients ?? existing.ingredients,
+        recipe: row.recipe ?? existing.recipe,
         notes: row.notes ?? existing.notes,
         updated_at: new Date(),
       })

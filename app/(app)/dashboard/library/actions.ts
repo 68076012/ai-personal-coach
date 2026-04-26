@@ -2,11 +2,20 @@
 
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
+import { formatInTimeZone } from "date-fns-tz";
 import { getSession } from "@/lib/auth";
-import { bumpMealLibraryUsage, insertMeal } from "@/lib/db/queries";
+import {
+  bumpMealLibraryUsage,
+  getDailyPlan,
+  insertMeal,
+  upsertDailyPlan,
+} from "@/lib/db/queries";
 import { db, schema } from "@/lib/db/client";
 import { and, eq, sql } from "drizzle-orm";
+import { asMealArray, type MealItem } from "@/lib/plan-types";
 import type { UserId, MealType } from "@/lib/db/schema";
+
+const TZ = "Asia/Bangkok";
 
 const UseMealInput = z.object({
   name: z.string().min(1),
@@ -51,4 +60,60 @@ export async function useSavedMeal(input: z.infer<typeof UseMealInput>) {
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/library");
   return { ok: true, kcal: entry.kcal };
+}
+
+const AddToPlanInput = z.object({
+  name: z.string().min(1),
+  meal_type: z.enum(["breakfast", "lunch", "dinner", "snack"]).optional(),
+});
+
+// Adds a saved meal to today's daily_plans.meal_plan as a planned entry —
+// distinct from useSavedMeal which inserts an actual meals row (i.e., logs
+// it as eaten). Used by the library list's "+ แผน" / "+ Plan" button so the
+// user can stage their meal queue without committing macros yet.
+export async function addToTodayPlan(input: z.infer<typeof AddToPlanInput>) {
+  const session = await getSession();
+  if (!session.userId) throw new Error("unauthenticated");
+  const parsed = AddToPlanInput.safeParse(input);
+  if (!parsed.success) throw new Error("bad_input");
+  const userId = session.userId as UserId;
+
+  const [entry] = await db
+    .select()
+    .from(schema.meal_library)
+    .where(
+      and(
+        eq(schema.meal_library.user_id, userId),
+        sql`lower(${schema.meal_library.name}) = lower(${parsed.data.name})`,
+      ),
+    )
+    .limit(1);
+  if (!entry) throw new Error("meal_not_in_library");
+
+  const today = formatInTimeZone(new Date(), TZ, "yyyy-MM-dd");
+  const existing = await getDailyPlan(userId, today);
+  const currentMeals = asMealArray(existing?.meal_plan);
+  const newMeal: MealItem = {
+    meal_type: (parsed.data.meal_type ?? entry.meal_type ?? "snack") as MealType,
+    name: entry.name,
+    kcal: entry.kcal,
+    protein_g: entry.protein_g,
+    carb_g: entry.carb_g,
+    fat_g: entry.fat_g,
+    prep_min: entry.prep_min ?? null,
+    ingredients: (entry.ingredients as string[] | null) ?? null,
+  };
+  const nextMeals = [...currentMeals, newMeal];
+
+  await upsertDailyPlan({
+    user_id: userId,
+    date: today,
+    workout_plan: existing?.workout_plan ?? null,
+    meal_plan: nextMeals,
+    notes: existing?.notes ?? null,
+  });
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/plan");
+  revalidatePath("/dashboard/library");
+  return { ok: true, count: nextMeals.length };
 }

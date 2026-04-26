@@ -1,0 +1,1 @@
+ALTER TABLE "meal_library" ADD COLUMN "recipe" text;
