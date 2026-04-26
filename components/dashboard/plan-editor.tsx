@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import {
@@ -35,6 +35,7 @@ interface Props {
   label: string;
   plan: DailyPlan | null;
   chatPrompt: string;
+  autoScroll?: boolean;
 }
 
 const MEAL_TYPES: MealType[] = ["breakfast", "lunch", "dinner", "snack"];
@@ -50,7 +51,25 @@ function num(v: number | null | undefined): string {
   return v === null || v === undefined ? "" : String(v);
 }
 
-export function PlanEditor({ date, label, plan, chatPrompt }: Props) {
+export function PlanEditor({ date, label, plan, chatPrompt, autoScroll }: Props) {
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  // When the user taps a day card on the week/month strip, the page
+  // navigates with ?date=YYYY-MM-DD and renders this editor below the
+  // strip. Without scrolling, the editor sits below the fold. Auto-
+  // scroll into view on first paint for any editor explicitly flagged
+  // by the parent (typically the one matching sp.date).
+  useEffect(() => {
+    if (!autoScroll || !cardRef.current) return;
+    // Tiny delay so the parent layout settles before the scroll fires.
+    const t = setTimeout(() => {
+      cardRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 80);
+    return () => clearTimeout(t);
+  }, [autoScroll]);
   const [workouts, setWorkouts] = useState<WorkoutItem[]>(() =>
     asWorkoutArray(plan?.workout_plan),
   );
@@ -148,7 +167,7 @@ export function PlanEditor({ date, label, plan, chatPrompt }: Props) {
   }
 
   return (
-    <Card>
+    <Card ref={cardRef}>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base font-semibold">
