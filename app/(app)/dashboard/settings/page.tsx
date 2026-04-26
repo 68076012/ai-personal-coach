@@ -25,7 +25,7 @@ export default async function SettingsPage() {
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">ตั้งค่า</h1>
         <p className="text-sm text-muted-foreground">
-          เป้าหมายที่ตั้งจะส่งให้โค้ชทุกครั้งที่คุย — แก้ได้ทุกเมื่อ
+          ทุกอย่างที่ใส่ไว้ โค้ชจะเห็นและใช้ในการวางแผน — แก้ได้ตลอดเวลา หรือบอกในแชทก็ได้
         </p>
       </header>
       <GoalEditor user={user} />

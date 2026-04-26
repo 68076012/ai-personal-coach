@@ -8,6 +8,7 @@ import {
   getDailyPlan,
   getMealsSince,
   getRecentDailyLogs,
+  getUser,
   getWeightSeries,
   getWorkoutDailyVolume,
   getWorkoutSummary,
@@ -17,6 +18,7 @@ import {
   insertWorkout,
   listMealLibrary,
   searchAgentMemory,
+  updateUser,
   upsertAgentMemory,
   upsertDailyPlan,
   upsertMealLibraryEntry,
@@ -96,6 +98,123 @@ const FindSavedMealArgs = z.object({
   query: z.string().max(120).optional(),
   limit: z.number().int().positive().max(20).default(10),
 });
+
+// Whitelist — values must match users column names. Order grouped by edit-risk.
+const PROFILE_FIELDS = [
+  // Additive — agent may write directly without confirming in chat first
+  "pantry_ingredients",
+  "dietary_notes",
+  "sports_focus",
+  "work_hours",
+  "workout_window",
+  "budget_per_day_thb",
+  // Destructive — agent MUST restate change in chat and get user 'ใช่/ok' first
+  "goal",
+  "goal_kcal",
+  "goal_protein_g",
+  "goal_carb_g",
+  "goal_fat_g",
+  "current_weight_kg",
+  "age",
+  "height_cm",
+  "activity_level",
+] as const;
+type ProfileField = (typeof PROFILE_FIELDS)[number];
+
+const NULLABLE_FIELDS = new Set<ProfileField>([
+  "pantry_ingredients",
+  "dietary_notes",
+  "sports_focus",
+  "work_hours",
+  "workout_window",
+  "budget_per_day_thb",
+  "goal_kcal",
+  "goal_protein_g",
+  "goal_carb_g",
+  "goal_fat_g",
+  "current_weight_kg",
+]);
+
+const UpdateProfileArgs = z.object({
+  field: z.enum(PROFILE_FIELDS),
+  value: z.string(), // stringified — coerced per-field below
+  reason: z.string().max(300).optional(),
+});
+
+interface ParsedValue {
+  ok: true;
+  value: string | number | null;
+}
+interface ParseError {
+  ok: false;
+  error: string;
+}
+
+function parseProfileValue(field: ProfileField, raw: string): ParsedValue | ParseError {
+  const trimmed = raw.trim();
+  if (trimmed === "" || trimmed.toLowerCase() === "null") {
+    if (NULLABLE_FIELDS.has(field)) return { ok: true, value: null };
+    return { ok: false, error: `${field} ห้ามเป็นค่าว่าง` };
+  }
+
+  const stringMaxes: Partial<Record<ProfileField, number>> = {
+    goal: 500,
+    pantry_ingredients: 2000,
+    dietary_notes: 1000,
+    sports_focus: 120,
+    work_hours: 300,
+    workout_window: 300,
+  };
+
+  const intFields: Partial<Record<ProfileField, number>> = {
+    goal_kcal: 10000,
+    goal_protein_g: 500,
+    goal_carb_g: 1000,
+    goal_fat_g: 500,
+    age: 120,
+    budget_per_day_thb: 100000,
+  };
+
+  const floatFields: Partial<Record<ProfileField, number>> = {
+    current_weight_kg: 400,
+    height_cm: 250,
+  };
+
+  if (field in stringMaxes) {
+    const max = stringMaxes[field]!;
+    if (trimmed.length > max) return { ok: false, error: `ยาวเกิน ${max} ตัวอักษร` };
+    return { ok: true, value: trimmed };
+  }
+
+  if (field in intFields) {
+    const n = Number(trimmed);
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) {
+      return { ok: false, error: "ต้องเป็นจำนวนเต็มไม่ติดลบ" };
+    }
+    if (n > intFields[field]!) {
+      return { ok: false, error: `เกินค่าสูงสุด ${intFields[field]}` };
+    }
+    return { ok: true, value: n };
+  }
+
+  if (field in floatFields) {
+    const n = Number(trimmed);
+    if (!Number.isFinite(n) || n <= 0) return { ok: false, error: "ต้องเป็นจำนวนบวก" };
+    if (n > floatFields[field]!) {
+      return { ok: false, error: `เกินค่าสูงสุด ${floatFields[field]}` };
+    }
+    return { ok: true, value: n };
+  }
+
+  if (field === "activity_level") {
+    if (!["sedentary", "light", "moderate", "active"].includes(trimmed)) {
+      return { ok: false, error: "ต้องเป็น sedentary | light | moderate | active" };
+    }
+    return { ok: true, value: trimmed };
+  }
+
+  return { ok: false, error: `unknown field: ${field}` };
+}
 
 const ProposePlanBulkArgs = z.object({
   reason: z.string().max(300).optional(),
@@ -266,6 +385,34 @@ export const TOOL_DECLARATIONS: Record<string, FunctionDeclaration> = {
       required: ["type"],
     },
   },
+  update_profile: {
+    name: "update_profile",
+    description:
+      "อัพเดท profile field ของผู้ใช้ (ตาราง users). ใช้เมื่อ user บอกในแชทว่าข้อมูลตัวเองเปลี่ยน เช่น 'ตอนนี้น้ำหนัก 70', 'แพ้นมเพิ่ม', 'งบลดเหลือ 200', 'อยากกินโปรตีน 150g/วัน'. ส่ง value เป็น string เสมอ (ตัวเลขก็ stringify เช่น '70', '150') — system จะแปลงให้ตามชนิด field. ถ้าจะ clear field nullable ให้ส่ง value=''. " +
+      "สำคัญ — รู้จัก 2 ชนิด field:\n" +
+      "(A) ADDITIVE — เขียนได้ทันทีไม่ต้องถาม: pantry_ingredients, dietary_notes, sports_focus, work_hours, workout_window, budget_per_day_thb\n" +
+      "(B) DESTRUCTIVE — ก่อนเรียก ให้ restate ใน chat ('จะอัพเดท X จาก A → B ใช่มั้ย?') แล้วรอ user ตอบ ใช่/ok ก่อน: goal, goal_kcal, goal_protein_g, goal_carb_g, goal_fat_g, current_weight_kg, age, height_cm, activity_level\n" +
+      "หลังเขียนเสร็จ ตอบ user สั้นๆ ว่าอัพเดทแล้ว (เช่น 'อัพเดท dietary_notes แล้ว — ครั้งหน้าผมจะหลีกเลี่ยงนม')",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        field: {
+          type: Type.STRING,
+          enum: PROFILE_FIELDS as unknown as string[],
+        },
+        value: {
+          type: Type.STRING,
+          description:
+            "ค่าใหม่ stringified. ตัวเลขเขียนเป็น string เช่น '70'. ถ้าจะ clear field ส่ง '' (เฉพาะ field nullable)",
+        },
+        reason: {
+          type: Type.STRING,
+          description: "ทำไมเปลี่ยน (เก็บ audit ใน agent_memory)",
+        },
+      },
+      required: ["field", "value"],
+    },
+  },
   search_memory: {
     name: "search_memory",
     description:
@@ -426,6 +573,7 @@ export function declarationsForAgent(
         TOOL_DECLARATIONS.update_plan,
         TOOL_DECLARATIONS.propose_plan_bulk,
         TOOL_DECLARATIONS.update_memory,
+        TOOL_DECLARATIONS.update_profile,
         TOOL_DECLARATIONS.get_history,
         TOOL_DECLARATIONS.get_history_summary,
         TOOL_DECLARATIONS.search_memory,
@@ -435,6 +583,7 @@ export function declarationsForAgent(
       return [
         TOOL_DECLARATIONS.log_meal,
         TOOL_DECLARATIONS.update_memory,
+        TOOL_DECLARATIONS.update_profile,
         TOOL_DECLARATIONS.get_history,
         TOOL_DECLARATIONS.get_history_summary,
         TOOL_DECLARATIONS.search_memory,
@@ -446,6 +595,7 @@ export function declarationsForAgent(
         TOOL_DECLARATIONS.update_plan,
         TOOL_DECLARATIONS.propose_plan_bulk,
         TOOL_DECLARATIONS.update_memory,
+        TOOL_DECLARATIONS.update_profile,
         TOOL_DECLARATIONS.get_history_summary,
         TOOL_DECLARATIONS.search_memory,
         TOOL_DECLARATIONS.find_saved_meal,
@@ -642,6 +792,32 @@ export async function executeTool(
         return {
           ok: true,
           data: { window_days: a.days, ...trend, series },
+        };
+      }
+      case "update_profile": {
+        const a = UpdateProfileArgs.parse(args);
+        const parsed = parseProfileValue(a.field, a.value);
+        if (!parsed.ok) return { ok: false, error: parsed.error };
+        const before = await getUser(ctx.userId);
+        if (!before) return { ok: false, error: "user_not_found" };
+        const oldVal = (before as Record<string, unknown>)[a.field];
+        await updateUser(ctx.userId, { [a.field]: parsed.value });
+        // Audit trail — agent_memory key prefix profile_change_*
+        const ts = ctx.now.toISOString().slice(0, 16).replace(/[-:T]/g, "");
+        await upsertAgentMemory({
+          user_id: ctx.userId,
+          agent_type: "shared",
+          key: `profile_change_${a.field}_${ts}`,
+          value: `${a.field}: ${oldVal ?? "(empty)"} → ${parsed.value ?? "(empty)"}${a.reason ? ` — ${a.reason}` : ""}`,
+          expires_at: addDays(ctx.now, 90),
+        });
+        return {
+          ok: true,
+          data: {
+            field: a.field,
+            old_value: oldVal ?? null,
+            new_value: parsed.value,
+          },
         };
       }
       case "search_memory": {

@@ -83,6 +83,9 @@ ${fmtRecent(ctx.recentWorkouts, (w) => `${w.exercise} ${w.sets ?? "?"}x${w.reps 
 - ห้ามวินิจฉัยทางการแพทย์ — ถ้าผู้ใช้บ่นเรื่องอาการบาดเจ็บหรือสุขภาพ ให้แนะนำให้พบผู้เชี่ยวชาญ
 - เมื่อผู้ใช้รายงานข้อมูล (กิน/ออกกำลังกาย/น้ำหนัก) ใช้ tool ที่เหมาะสมเพื่อ persist ก่อนตอบ
 - เมื่อผู้ใช้บอก constraint หรือ preference ใหม่ ใช้ update_memory
+- เมื่อผู้ใช้บอกว่าข้อมูลตัวเองเปลี่ยน (น้ำหนัก, เป้า kcal, แพ้อะไร, งบ, กีฬา ฯลฯ) ใช้ update_profile:
+  • ฟิลด์ ADDITIVE (pantry_ingredients, dietary_notes, sports_focus, work_hours, workout_window, budget_per_day_thb) → เขียนทันทีได้เลย
+  • ฟิลด์ DESTRUCTIVE (goal, goal_kcal, goal_protein_g, goal_carb_g, goal_fat_g, current_weight_kg, age, height_cm, activity_level) → ต้อง restate การเปลี่ยนแล้วถาม "ใช่มั้ย?" รอ user ยืนยัน 'ใช่/ok' ก่อน
 - อย่าแต่งข้อมูลขึ้นมา ถ้าไม่แน่ใจให้ถาม
 - ตอบสั้น (≤ 3 ประโยค) แล้วถาม coaching question 1 ข้อหากเหมาะสม`;
 }
