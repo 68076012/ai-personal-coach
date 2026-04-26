@@ -4,6 +4,9 @@ import * as React from "react";
 import { useTransition } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { formatInTimeZone } from "date-fns-tz";
+
+const TZ = "Asia/Bangkok";
 import {
   ChevronRight,
   Dumbbell,
@@ -17,7 +20,7 @@ import {
   Circle,
   X,
 } from "lucide-react";
-import { deleteLogEntry } from "@/app/(app)/dashboard/actions";
+import { deleteLogEntry, restoreLogEntry } from "@/app/(app)/dashboard/actions";
 import { HiFiCard, Chip, Bar, BigNum, AppBar, HiFiButton } from "@/components/hifi";
 import { LogMealSheet } from "@/components/dashboard/log-meal-sheet";
 import { t, type Lang } from "@/lib/i18n";
@@ -286,6 +289,7 @@ export function HiFiDashboard({
                   table="meals"
                   icon="meal"
                   title={m.food_name}
+                  time={formatInTimeZone(m.datetime, TZ, "HH:mm")}
                   meta={`${m.kcal} ${t("kcal_short", lang)} · P${Math.round(m.protein_g)}g`}
                   lang={lang}
                 />
@@ -297,6 +301,7 @@ export function HiFiDashboard({
                   table="workouts"
                   icon="workout"
                   title={w.exercise}
+                  time={formatInTimeZone(w.datetime, TZ, "HH:mm")}
                   meta={`${w.sets ?? "?"}×${w.reps ?? "?"}${w.weight_kg ? ` @ ${w.weight_kg}kg` : ""}`}
                   lang={lang}
                 />
@@ -333,6 +338,7 @@ function RecentLogRow({
   table,
   icon,
   title,
+  time,
   meta,
   lang,
 }: {
@@ -340,6 +346,7 @@ function RecentLogRow({
   table: "meals" | "workouts";
   icon: "meal" | "workout";
   title: string;
+  time?: string;
   meta: string;
   lang: Lang;
 }) {
@@ -347,12 +354,25 @@ function RecentLogRow({
   const [hidden, setHidden] = React.useState(false);
 
   function onDelete() {
-    if (!confirm(lang === "th" ? "ลบรายการนี้? undo ไม่ได้" : "Delete this entry? Undo is not available.")) return;
     startTransition(async () => {
       try {
-        await deleteLogEntry({ table, id });
+        const r = await deleteLogEntry({ table, id });
         setHidden(true);
-        toast.success(lang === "th" ? "ลบแล้ว" : "Deleted");
+        // Friendlier than window.confirm — sonner action toast with 5s undo.
+        toast.success(lang === "th" ? "ลบแล้ว" : "Deleted", {
+          duration: 5000,
+          action: {
+            label: lang === "th" ? "เลิกทำ" : "Undo",
+            onClick: async () => {
+              try {
+                await restoreLogEntry({ table, row: r.row });
+                setHidden(false);
+              } catch (err) {
+                toast.error(err instanceof Error ? err.message : "Undo failed");
+              }
+            },
+          },
+        });
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Delete failed");
       }
@@ -374,7 +394,14 @@ function RecentLogRow({
         {icon === "workout" ? <Dumbbell className="size-4" /> : <UtensilsCrossed className="size-4" />}
       </div>
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium truncate">{title}</div>
+        <div className="flex items-baseline gap-2">
+          <div className="text-sm font-medium truncate">{title}</div>
+          {time && (
+            <span className="text-[10px] tabular text-[var(--ink-3)] shrink-0">
+              {time}
+            </span>
+          )}
+        </div>
         <div className="text-xs text-[var(--ink-3)]">{meta}</div>
       </div>
       <button
