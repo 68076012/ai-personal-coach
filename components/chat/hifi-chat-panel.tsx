@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Camera, Mic, Send } from "lucide-react";
+import { Camera, Mic, Send, Square } from "lucide-react";
 import { toast } from "sonner";
 import { HiFiAgentBadge, type AgentKey } from "./hifi-agent-badge";
 import { HiFiToolCard, type ToolEvent } from "./hifi-tool-card";
@@ -36,6 +36,7 @@ export function HiFiChatPanel({
   const [input, setInput] = useState(initialDraft);
   const [pending, startTransition] = useTransition();
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const router = useRouter();
 
   // Run after every paint so the scroll area is laid out with its real
@@ -56,13 +57,14 @@ export function HiFiChatPanel({
   function send() {
     const text = input.trim();
     if (!text || pending) return;
+    const placeholderId = crypto.randomUUID();
     const userMsg: HiFiChatMessageData = {
       id: crypto.randomUUID(),
       role: "user",
       content: text,
     };
     const placeholder: HiFiChatMessageData = {
-      id: crypto.randomUUID(),
+      id: placeholderId,
       role: "assistant",
       content: "",
       pending: true,
@@ -70,12 +72,16 @@ export function HiFiChatPanel({
     setMessages((m) => [...m, userMsg, placeholder]);
     setInput("");
 
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+
     startTransition(async () => {
       try {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ message: text, agent: defaultAgent }),
+          signal: ctrl.signal,
         });
         const json = await res.json();
         if (!res.ok || !json.ok) {
@@ -83,7 +89,7 @@ export function HiFiChatPanel({
         }
         setMessages((m) =>
           m.map((msg) =>
-            msg.id === placeholder.id
+            msg.id === placeholderId
               ? {
                   ...msg,
                   pending: false,
@@ -96,11 +102,20 @@ export function HiFiChatPanel({
         );
         router.refresh();
       } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        toast.error(errMsg);
-        setMessages((m) => m.filter((x) => x.id !== placeholder.id));
+        const aborted = (err as { name?: string }).name === "AbortError";
+        if (!aborted) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          toast.error(errMsg);
+        }
+        setMessages((m) => m.filter((x) => x.id !== placeholderId));
+      } finally {
+        abortRef.current = null;
       }
     });
+  }
+
+  function cancel() {
+    abortRef.current?.abort();
   }
 
   function onKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -173,19 +188,29 @@ export function HiFiChatPanel({
               "outline-none focus:ring-2 focus:ring-[var(--accent)]/30 disabled:opacity-60",
             )}
           />
-          <button
-            onClick={send}
-            disabled={pending || !input.trim()}
-            aria-label="Send"
-            className={cn(
-              "size-10 rounded-full inline-flex items-center justify-center shrink-0 transition-transform active:scale-[0.97]",
-              input.trim()
-                ? "bg-[var(--accent)] text-white"
-                : "bg-[var(--surface-2)] text-[var(--ink-3)]",
-            )}
-          >
-            <Send className="size-4" />
-          </button>
+          {pending ? (
+            <button
+              onClick={cancel}
+              aria-label={t("close", lang)}
+              className="size-10 rounded-full inline-flex items-center justify-center shrink-0 transition-transform active:scale-[0.97] bg-[var(--ink)] text-[var(--bg)]"
+            >
+              <Square className="size-3.5 fill-current" />
+            </button>
+          ) : (
+            <button
+              onClick={send}
+              disabled={!input.trim()}
+              aria-label="Send"
+              className={cn(
+                "size-10 rounded-full inline-flex items-center justify-center shrink-0 transition-transform active:scale-[0.97]",
+                input.trim()
+                  ? "bg-[var(--accent)] text-white"
+                  : "bg-[var(--surface-2)] text-[var(--ink-3)]",
+              )}
+            >
+              <Send className="size-4" />
+            </button>
+          )}
         </div>
       </div>
     </>
