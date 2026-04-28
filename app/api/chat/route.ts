@@ -7,7 +7,6 @@ import {
   isPlanSynthesisRoute,
   runPlanSynthesis,
 } from "@/lib/llm/plan-synthesis";
-import type { ModelTier } from "@/lib/llm/models";
 import {
   TRAINER_PROMPT,
   NUTRITIONIST_PROMPT,
@@ -32,7 +31,6 @@ const Body = z.object({
   agent: z
     .enum(["trainer", "nutritionist", "meal_designer", "reporter", "auto"])
     .default("auto"),
-  model: z.enum(["kimi", "kimi-fast", "auto"]).default("auto"),
 });
 
 const PROMPT_BY_AGENT = {
@@ -127,9 +125,6 @@ export async function POST(req: Request) {
     return errorResponse(400, { ok: false, error: "bad_input" });
   }
 
-  const overrideTier: ModelTier | undefined =
-    parsed.data.model === "auto" ? undefined : (parsed.data.model as ModelTier);
-
   return makeSseResponse(async (send) => {
     let agents: Array<keyof typeof PROMPT_BY_AGENT>;
     let synthesisSpecialists: ("trainer" | "meal_designer")[] | null = null;
@@ -174,7 +169,6 @@ export async function POST(req: Request) {
           userId,
           message: parsed.data.message,
           specialists: synthesisSpecialists,
-          overrideTier,
           // Lets the synthesizer surface progress through the same SSE
           // stream — drafts, merging, persisting all become phase events
           // the user can see instead of the silent black-box wait.
@@ -236,7 +230,6 @@ export async function POST(req: Request) {
           systemSuffix: PROMPT_BY_AGENT[agent],
           task: agent === "reporter" ? "report" : "chat",
           persistConversation: true,
-          overrideTier,
         });
         replies.push({
           agent: result.agent,

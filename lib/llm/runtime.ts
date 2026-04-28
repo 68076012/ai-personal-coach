@@ -11,7 +11,7 @@ import {
 } from "@/lib/db/queries";
 import type { AgentType, UserId } from "@/lib/db/schema";
 import { callLLM } from "./client";
-import { chooseModel, type AgentName, type ModelTier, type Task } from "./models";
+import type { AgentName, ModelTier, Task } from "./models";
 import { commonHeader, type PromptContext } from "./prompts";
 import { sanitizeAssistantText } from "./sanitize";
 import {
@@ -116,14 +116,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
   }
   contents.push(toContent("user", input.userMessage));
 
-  const tier =
-    input.overrideTier ??
-    chooseModel({
-      agent: input.agent,
-      task: input.task ?? "chat",
-      hasTools: tools.length > 0,
-      estimatedComplexity: input.estimatedComplexity,
-    });
+  const tier: ModelTier = input.overrideTier ?? "kimi";
 
   const toolCtx: ToolContext = {
     userId: input.userId,
