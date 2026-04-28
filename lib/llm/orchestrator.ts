@@ -43,12 +43,11 @@ export async function routeMessage(message: string): Promise<RouteResult> {
     };
   }
 
-  // 2. LLM fallback (Kimi Fast — non-reasoning, snappy). Prompt was updated
-  // to optionally return an `agents` array; fall back to single `agent` for
-  // backwards compatibility.
+  // 2. LLM fallback (Kimi K2.6). Prompt was updated to optionally return an
+  // `agents` array; fall back to single `agent` for backwards compatibility.
   try {
     const res = await callLLM({
-      tier: "kimi-fast",
+      tier: "kimi",
       systemInstruction: ORCHESTRATOR_PROMPT,
       contents: [{ role: "user", parts: [{ text: message }] }],
       agent: "orchestrator",

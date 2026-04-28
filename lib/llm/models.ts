@@ -1,26 +1,14 @@
-export type ModelTier = "kimi" | "kimi-fast";
+// The app runs on a single Moonshot reasoning model — Kimi K2.6.
+// `ModelTier` stays as a one-member union (rather than dropping the type
+// entirely) so callers like `runAgent({ overrideTier })` keep their existing
+// signatures and we can re-introduce more tiers later without touching them.
+export type ModelTier = "kimi";
 
-// Display IDs. The actual API model id for `kimi` is configurable via
-// MOONSHOT_MODEL env (default "kimi-k2.6"). `kimi-fast` pins to the
-// non-reasoning Moonshot model — useful when latency matters more than
-// reasoning depth (e.g., chat that needs to fit a serverless timeout
-// budget). Both tiers bill against the same Moonshot balance.
+// Actual API model id is configurable via MOONSHOT_MODEL env (default
+// "kimi-k2.6") to accommodate alias drift on the Moonshot side.
 export const MODEL_ID: Record<ModelTier, string> = {
   kimi: process.env.MOONSHOT_MODEL ?? "kimi-k2.6",
-  "kimi-fast": "moonshot-v1-32k",
 };
-
-// kimi-fast falls back to k2.6 if the non-reasoning endpoint is unavailable.
-// k2.6 has no fallback — if Moonshot's reasoning model is down, the call
-// fails and the route surfaces the error to the user.
-export const FALLBACK_CHAIN: Record<ModelTier, ModelTier[]> = {
-  kimi: ["kimi"],
-  "kimi-fast": ["kimi-fast", "kimi"],
-};
-
-export function isKimiTier(tier: ModelTier): boolean {
-  return tier === "kimi" || tier === "kimi-fast";
-}
 
 export type AgentName =
   | "orchestrator"
@@ -29,22 +17,7 @@ export type AgentName =
   | "meal_designer"
   | "reporter";
 
+// Kept on `RunAgentInput` for documentation purposes and so the cron jobs
+// (which still tag their calls with task/complexity hints) keep type-checking
+// even though the LLM call itself no longer branches on them.
 export type Task = "route" | "log" | "chat" | "plan" | "report";
-
-export interface CallOptions {
-  agent: AgentName;
-  task: Task;
-  hasTools: boolean;
-  estimatedComplexity?: "low" | "medium" | "high";
-}
-
-// Default tier picker. Reasoning-heavy work (reports, planning, complex
-// chat with high complexity) gets k2.6; everything else uses kimi-fast for
-// snappier round-trips. Users can override per request via the model
-// selector in the chat composer.
-export function chooseModel(opts: CallOptions): ModelTier {
-  if (opts.agent === "reporter") return "kimi";
-  if (opts.task === "plan") return "kimi";
-  if (opts.estimatedComplexity === "high") return "kimi";
-  return "kimi-fast";
-}

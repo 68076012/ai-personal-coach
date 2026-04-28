@@ -1,6 +1,6 @@
 import { db } from "@/lib/db/client";
 import { llm_calls } from "@/lib/db/schema";
-import { FALLBACK_CHAIN, MODEL_ID, type ModelTier } from "./models";
+import { MODEL_ID, type ModelTier } from "./models";
 import { callKimi } from "./kimi";
 import type {
   Content,
@@ -34,12 +34,7 @@ export interface ChainAttempt {
   retried?: boolean;
 }
 
-export type LLMChainKind =
-  // Kept the legacy union so callers (chat route's CHAIN_USER_MESSAGE map)
-  // don't need a separate migration. Now there's effectively only one
-  // failure shape: Kimi was unreachable / overloaded.
-  | "kimi_overload"
-  | "all_failed";
+export type LLMChainKind = "kimi_overload" | "all_failed";
 
 export class LLMChainError extends Error {
   kind: LLMChainKind;
@@ -47,7 +42,7 @@ export class LLMChainError extends Error {
   constructor(kind: LLMChainKind, attempts: ChainAttempt[]) {
     const last = attempts[attempts.length - 1];
     super(
-      `[llm] chain ${kind}: ${attempts.map((a) => `${a.tier}=${a.cause}`).join(" → ")}` +
+      `[llm] ${kind}: ${attempts.map((a) => `${a.tier}=${a.cause}`).join(" → ")}` +
         (last ? ` (last: ${last.error.slice(0, 160)})` : ""),
     );
     this.name = "LLMChainError";
@@ -56,28 +51,21 @@ export class LLMChainError extends Error {
   }
 }
 
-function classifyChainResult(attempts: ChainAttempt[]): LLMChainKind {
-  if (attempts.length === 0) return "all_failed";
-  const last = attempts[attempts.length - 1];
-  if (last.cause === "rate_limit" || last.cause === "overloaded" || last.cause === "server_error") {
-    return "kimi_overload";
-  }
-  return "all_failed";
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export interface CallParams {
+  // Single tier today, but kept on the param so callsites stay stable if we
+  // re-introduce alternatives. Always "kimi".
   tier: ModelTier;
   systemInstruction: string;
   contents: Content[];
   tools?: FunctionDeclaration[];
   agent?: string;
   userId?: string | null;
-  // Accepted for API compatibility with the previous Gemini-aware client —
-  // ignored on Moonshot, which doesn't expose a thinking budget knob.
+  // Accepted for legacy compatibility — Moonshot doesn't expose a thinking
+  // budget knob, so it's ignored.
   thinkingBudget?: number;
 }
 
@@ -114,48 +102,35 @@ async function attemptCall(
   }
 }
 
-// Single LLM entry point. Walks FALLBACK_CHAIN[tier] (e.g. kimi-fast → kimi)
-// and retries the last tier once on transient errors before giving up.
+// Single LLM entry point. Calls Kimi K2.6 once, retries once after 2s on
+// transient errors (429/503/5xx) before surfacing the failure.
 export async function callLLM(
   params: CallParams,
 ): Promise<GenerateContentResponse> {
-  const chain = FALLBACK_CHAIN[params.tier];
+  const tier = params.tier;
   const attempts: ChainAttempt[] = [];
 
-  for (const tier of chain) {
-    let result = await attemptCall(tier, params);
+  let result = await attemptCall(tier, params);
+  if (result.ok) return result.res;
+
+  const transient = classifyTransient(result.err);
+  const errMsg = result.err instanceof Error ? result.err.message : String(result.err);
+
+  if (transient) {
+    attempts.push({ tier, model: MODEL_ID[tier], cause: transient, error: errMsg, retried: true });
+    console.warn(`[llm] ${tier} ${transient}, retrying once after 2s`);
+    await sleep(2000);
+    result = await attemptCall(tier, params);
     if (result.ok) return result.res;
-
-    const transient = classifyTransient(result.err);
-    const errMsg = result.err instanceof Error ? result.err.message : String(result.err);
-    const isLast = tier === chain[chain.length - 1];
-
-    // Retry once on the LAST tier if it's transient — gives Moonshot a brief
-    // moment to clear engine overload before we surface the error.
-    if (transient && isLast) {
-      attempts.push({ tier, model: MODEL_ID[tier], cause: transient, error: errMsg, retried: true });
-      console.warn(`[llm] ${tier} ${transient} on last tier, retrying once after 2s`);
-      await sleep(2000);
-      result = await attemptCall(tier, params);
-      if (result.ok) return result.res;
-      const retryMsg = result.err instanceof Error ? result.err.message : String(result.err);
-      const retryCause = classifyTransient(result.err) ?? "fatal";
-      attempts.push({ tier, model: MODEL_ID[tier], cause: retryCause, error: retryMsg, retried: true });
-      throw new LLMChainError(classifyChainResult(attempts), attempts);
-    }
-
-    if (transient) {
-      console.warn(`[llm] ${tier} ${transient}, trying next tier`);
-      attempts.push({ tier, model: MODEL_ID[tier], cause: transient, error: errMsg });
-      continue;
-    }
-
-    // Non-transient (auth, bad request, missing API key) — fail immediately.
-    attempts.push({ tier, model: MODEL_ID[tier], cause: "fatal", error: errMsg });
-    throw new LLMChainError(classifyChainResult(attempts), attempts);
+    const retryMsg = result.err instanceof Error ? result.err.message : String(result.err);
+    const retryCause = classifyTransient(result.err) ?? "fatal";
+    attempts.push({ tier, model: MODEL_ID[tier], cause: retryCause, error: retryMsg, retried: true });
+    throw new LLMChainError("kimi_overload", attempts);
   }
 
-  throw new LLMChainError(classifyChainResult(attempts), attempts);
+  // Non-transient (auth, bad request, missing API key) — fail immediately.
+  attempts.push({ tier, model: MODEL_ID[tier], cause: "fatal", error: errMsg });
+  throw new LLMChainError("all_failed", attempts);
 }
 
 interface CallRecord {

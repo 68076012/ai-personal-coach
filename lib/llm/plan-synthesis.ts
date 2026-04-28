@@ -164,7 +164,7 @@ async function draftWorkoutSlice(
   const systemInstruction = `${commonHeader(ctx)}\n\n${DRAFT_TRAINER}\n\n${datesLine}`;
   try {
     const res = await callLLM({
-      tier: overrideTier ?? "kimi-fast",
+      tier: overrideTier ?? "kimi",
       systemInstruction,
       contents: [{ role: "user", parts: [{ text: message }] }],
       agent: "trainer",
@@ -200,7 +200,7 @@ async function draftMealSlice(
   const systemInstruction = `${commonHeader(ctx)}\n\n${DRAFT_MEAL_DESIGNER}\n\n${datesLine}`;
   try {
     const res = await callLLM({
-      tier: overrideTier ?? "kimi-fast",
+      tier: overrideTier ?? "kimi",
       systemInstruction,
       contents: [{ role: "user", parts: [{ text: message }] }],
       agent: "meal_designer",
@@ -296,11 +296,12 @@ export async function runPlanSynthesis(
   ]);
   onPhase?.("รวมแผนเป็นชุดเดียว…");
 
-  // Default merge to kimi-fast (moonshot-v1-32k) — non-reasoning, ~5-15s.
-  // The k2.6 reasoning model can take 5-15 minutes on multi-day plans, which
-  // chews through serverless time budgets. Users can still force k2.6 via
-  // the model selector for richer merging on patient days.
-  const synthTier: ModelTier = overrideTier ?? "kimi-fast";
+  // Single tier today: Kimi K2.6 reasoning model. Slower than the old fast
+  // tier (15-30s typical, can spike on multi-day merges), but it produces
+  // strict JSON reliably — which is the contract the synthesis path needs
+  // since there's no native function calling here, only `extractJson` over
+  // model output.
+  const synthTier: ModelTier = overrideTier ?? "kimi";
   const { plan, summary } = await synthesize(
     userId,
     message,
