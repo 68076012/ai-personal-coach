@@ -1,5 +1,4 @@
-import { Type } from "@google/genai";
-import { callGemini } from "./client";
+import { callLLM } from "./client";
 import { ORCHESTRATOR_PROMPT } from "./prompts";
 import type { AgentName } from "./models";
 
@@ -44,11 +43,12 @@ export async function routeMessage(message: string): Promise<RouteResult> {
     };
   }
 
-  // 2. LLM fallback (Flash-Lite). Prompt was updated to optionally return an
-  // `agents` array; fall back to single `agent` for backwards compatibility.
+  // 2. LLM fallback (Kimi Fast — non-reasoning, snappy). Prompt was updated
+  // to optionally return an `agents` array; fall back to single `agent` for
+  // backwards compatibility.
   try {
-    const res = await callGemini({
-      tier: "flash-lite",
+    const res = await callLLM({
+      tier: "kimi-fast",
       systemInstruction: ORCHESTRATOR_PROMPT,
       contents: [{ role: "user", parts: [{ text: message }] }],
       agent: "orchestrator",
@@ -98,5 +98,3 @@ export function specialistsFor(
   return out;
 }
 
-// Re-export so we don't need Type import elsewhere unused
-export const _Type = Type;

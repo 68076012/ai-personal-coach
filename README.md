@@ -17,7 +17,7 @@ Built for $0/mo using Vercel Hobby + Supabase free + Gemini free tier with smart
 
 ## Stack
 
-Next.js 16 (App Router) · TypeScript · Tailwind v4 · shadcn/ui (Radix) · Drizzle ORM · Postgres (Supabase) · `@google/genai` (Gemini 2.5) · `openai` SDK (Moonshot Kimi K2.6) · iron-session · Recharts · sonner · pnpm.
+Next.js 16 (App Router) · TypeScript · Tailwind v4 · shadcn/ui (Radix) · Drizzle ORM · Postgres (Supabase) · `openai` SDK (Moonshot Kimi K2.6 + moonshot-v1-32k) · iron-session · Recharts · sonner · pnpm.
 
 ```
 lib/llm/
@@ -88,9 +88,8 @@ Fill `.env.local`:
 | Variable | Where to get it |
 |---|---|
 | `DATABASE_URL` | Supabase → Connect → **Transaction pooler** (port 6543). URL-encode any `@:/#?&%` in the password. |
-| `GOOGLE_API_KEY` | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
-| `MOONSHOT_API_KEY` | (optional) [platform.moonshot.ai](https://platform.moonshot.ai) — Kimi K2.6 fallback when Gemini is rate-limited. Without it, the chain fails after Flash-Lite. |
-| `MOONSHOT_MODEL` | (optional) override the Kimi model id; default `kimi-k2.6` |
+| `MOONSHOT_API_KEY` | [platform.moonshot.ai](https://platform.moonshot.ai) — required. The app uses Kimi K2.6 (reasoning) and `moonshot-v1-32k` (fast) for every LLM call. |
+| `MOONSHOT_MODEL` | (optional) override the K2.6 model id; default `kimi-k2.6` |
 | `MOONSHOT_BASE_URL` | (optional) `https://api.moonshot.cn/v1` for the China endpoint |
 | `AUTH_SECRET` | Any 32+ char hex (`openssl rand -hex 32`) |
 | `CRON_SECRET` | Any random hex string |
@@ -126,8 +125,7 @@ Pick **Garfield** or **Mai**, and start chatting.
 pnpm i -g vercel
 vercel link
 vercel env add DATABASE_URL production
-vercel env add GOOGLE_API_KEY production
-vercel env add MOONSHOT_API_KEY production    # optional, but recommended
+vercel env add MOONSHOT_API_KEY production
 vercel env add AUTH_SECRET production
 vercel env add CRON_SECRET production
 vercel env add NEXT_PUBLIC_APP_URL production

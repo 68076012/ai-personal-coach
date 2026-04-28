@@ -1,11 +1,11 @@
 import OpenAI from "openai";
-import {
-  type Content,
-  type FunctionCall,
-  type FunctionDeclaration,
-  type GenerateContentResponse,
-} from "@google/genai";
-import { GEMINI_MODEL } from "./models";
+import type {
+  Content,
+  FunctionCall,
+  FunctionDeclaration,
+  GenerateContentResponse,
+} from "./types";
+import { MODEL_ID } from "./models";
 
 let cachedClient: OpenAI | null = null;
 
@@ -22,9 +22,10 @@ function getClient(): OpenAI {
   return cachedClient;
 }
 
-// Lowercase JSON-Schema type fields recursively. Gemini's SDK uses Type enum
-// values (e.g. "STRING", "OBJECT"); OpenAI/Moonshot expects lowercase
-// JSON-Schema strings.
+// Lowercase JSON-Schema type fields recursively. Tool declarations use
+// uppercase Type enum values (e.g. "STRING", "OBJECT") — kept that way for
+// historical reasons / readability — but OpenAI/Moonshot expects lowercase
+// JSON-Schema strings on the wire.
 function normalizeSchema(node: unknown): unknown {
   if (Array.isArray(node)) return node.map(normalizeSchema);
   if (node && typeof node === "object") {
@@ -45,7 +46,7 @@ function declarationsToOpenAITools(decls: FunctionDeclaration[]) {
   return decls.map((d) => ({
     type: "function" as const,
     function: {
-      name: d.name ?? "unnamed",
+      name: d.name,
       description: d.description ?? "",
       parameters: (normalizeSchema(d.parameters) as Record<string, unknown>) ?? {
         type: "object",
@@ -55,8 +56,9 @@ function declarationsToOpenAITools(decls: FunctionDeclaration[]) {
   }));
 }
 
-// Walks Gemini contents and emits a deterministic tool_call_id per (msg, part)
-// so model.tool_calls and the matching role:"tool" responses line up.
+// Walks the contents array and emits a deterministic tool_call_id per
+// (msg, part) so model.tool_calls and the matching role:"tool" responses
+// line up.
 function callIdFor(msgIdx: number, partIdx: number): string {
   return `call_${msgIdx}_${partIdx}`;
 }
@@ -123,9 +125,9 @@ function contentsToMessages(
 }
 
 export interface CallKimiParams {
-  // Specific Moonshot model id. Caller decides — typically GEMINI_MODEL[tier]
-  // for whichever Kimi tier was requested. Falls back to GEMINI_MODEL.kimi
-  // for callers that don't specify (legacy).
+  // Specific Moonshot model id. Caller decides — typically MODEL_ID[tier]
+  // for whichever tier was requested. Falls back to MODEL_ID.kimi for
+  // callers that don't specify.
   model?: string;
   systemInstruction: string;
   contents: Content[];
@@ -149,7 +151,7 @@ export async function callKimi(
   // default avoids maintaining a per-model whitelist and keeps adding new
   // models risk-free.
   const completion = await client.chat.completions.create({
-    model: params.model ?? GEMINI_MODEL.kimi,
+    model: params.model ?? MODEL_ID.kimi,
     messages,
     tools,
     tool_choice: tools ? "auto" : undefined,

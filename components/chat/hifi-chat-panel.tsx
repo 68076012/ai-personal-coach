@@ -10,31 +10,15 @@ import { HiFiToolCard, type ToolEvent } from "./hifi-tool-card";
 import { type Lang, t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
-type ModelChoice =
-  | "auto"
-  | "pro"
-  | "flash"
-  | "flash-lite"
-  | "kimi"
-  | "kimi-fast";
+type ModelChoice = "auto" | "kimi" | "kimi-fast";
 
 const MODEL_LABEL: Record<ModelChoice, string> = {
   auto: "Auto",
-  pro: "Pro",
-  flash: "Flash",
-  "flash-lite": "Lite",
   kimi: "Kimi K2.6",
   "kimi-fast": "Kimi Fast",
 };
 
-const MODEL_ORDER: ModelChoice[] = [
-  "auto",
-  "pro",
-  "flash",
-  "flash-lite",
-  "kimi",
-  "kimi-fast",
-];
+const MODEL_ORDER: ModelChoice[] = ["auto", "kimi-fast", "kimi"];
 
 const MODEL_STORAGE_KEY = "chat:model";
 
@@ -503,10 +487,9 @@ export function HiFiChatPanel({
         style={{ paddingBottom: "max(env(safe-area-inset-bottom), 8px)" }}
       >
         <div className="mx-auto flex w-full max-w-2xl items-end gap-2">
-          {/* Model selector — replaces the old mic/camera placeholders.
-              Forces a specific Gemini/Kimi tier server-side; "Auto" defers
-              to chooseModel(). The fallback chain in client.ts still kicks
-              in if the chosen tier is unavailable. */}
+          {/* Model selector. Forces a specific Kimi tier server-side;
+              "Auto" defers to chooseModel(). The fallback chain in
+              client.ts still kicks in if the chosen tier is unavailable. */}
           <div ref={modelMenuRef} className="relative shrink-0">
             <button
               type="button"

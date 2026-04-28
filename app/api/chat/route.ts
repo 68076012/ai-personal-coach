@@ -16,12 +16,10 @@ import {
 } from "@/lib/llm/prompts";
 
 const CHAIN_USER_MESSAGE: Record<LLMChainKind, string> = {
-  gemini_quota:
-    "Gemini quota หมดวันนี้ — รีเซ็ตประมาณ 14:00 ICT 🕑 ระหว่างนี้ลองอีกครั้ง 1-2 นาที (ระบบจะลอง Kimi ให้)",
   kimi_overload:
-    "Kimi (fallback) แน่นอยู่ตอนนี้ — engine overloaded ไม่ใช่ปัญหา balance. ลองอีกที 30-60 วินาที 🙏",
+    "Kimi engine กำลังหนาแน่น — ไม่ใช่ปัญหา balance. ลองอีกที 30-60 วินาที 🙏",
   all_failed:
-    "AI ทุก provider ขัดข้องชั่วคราว — ลองอีกครั้งใน 1-2 นาที. ถ้ายังเป็นอยู่ เช็ค /dashboard/admin",
+    "AI ขัดข้องชั่วคราว — ลองอีกครั้งใน 1-2 นาที. ถ้ายังเป็นอยู่ เช็ค /dashboard/admin",
 };
 
 export const runtime = "nodejs";
@@ -34,9 +32,7 @@ const Body = z.object({
   agent: z
     .enum(["trainer", "nutritionist", "meal_designer", "reporter", "auto"])
     .default("auto"),
-  model: z
-    .enum(["pro", "flash", "flash-lite", "kimi", "kimi-fast", "auto"])
-    .default("auto"),
+  model: z.enum(["kimi", "kimi-fast", "auto"]).default("auto"),
 });
 
 const PROMPT_BY_AGENT = {

@@ -1,4 +1,4 @@
-import { Type, type FunctionDeclaration } from "@google/genai";
+import { Type, type FunctionDeclaration } from "./types";
 import { z } from "zod";
 import {
   appendConversation,
@@ -259,7 +259,7 @@ const ProposeMealsArgs = z.object({
   ),
 });
 
-// ===== Function declarations (sent to Gemini) =====
+// ===== Function declarations (sent to the LLM) =====
 
 export const TOOL_DECLARATIONS: Record<string, FunctionDeclaration> = {
   log_meal: {

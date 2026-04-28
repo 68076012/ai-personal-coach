@@ -1,4 +1,4 @@
-import { callGemini } from "./client";
+import { callLLM } from "./client";
 import {
   deleteConversationsForWeek,
   getArchivableConversationWeeks,
@@ -66,8 +66,8 @@ export async function runConversationArchival(opts: {
         .join("\n")
         .slice(0, 12000); // cap input tokens so cost stays bounded
 
-      const res = await callGemini({
-        tier: "flash",
+      const res = await callLLM({
+        tier: "kimi-fast",
         systemInstruction: SYSTEM,
         contents: [{ role: "user", parts: [{ text: transcript }] }],
         agent: "reporter",

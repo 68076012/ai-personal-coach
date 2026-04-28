@@ -1,6 +1,6 @@
 import { formatInTimeZone } from "date-fns-tz";
 import { addDays } from "date-fns";
-import { callGemini } from "./client";
+import { callLLM } from "./client";
 import { commonHeader } from "./prompts";
 import { buildPromptContext, TZ } from "./runtime";
 import { executeTool, logTurn } from "./tools";
@@ -163,16 +163,12 @@ async function draftWorkoutSlice(
       : `วันที่เป้าหมาย: ${dates[0]} → ${dates[dates.length - 1]} (${dateLabel}). ออกแบบ "1 วัน representative" ที่ orchestrator จะปรับใช้กับวันอื่น`;
   const systemInstruction = `${commonHeader(ctx)}\n\n${DRAFT_TRAINER}\n\n${datesLine}`;
   try {
-    const res = await callGemini({
-      tier: overrideTier ?? "flash",
+    const res = await callLLM({
+      tier: overrideTier ?? "kimi-fast",
       systemInstruction,
       contents: [{ role: "user", parts: [{ text: message }] }],
       agent: "trainer",
       userId,
-      // Drafts emit JSON from a fixed schema — no reasoning needed. Disabling
-      // thinking shaves 2-5s off each call and is the difference between
-      // landing inside Vercel's 60s budget and timing out.
-      thinkingBudget: 0,
     });
     const parsed = extractJson(res.text ?? "");
     if (!parsed || typeof parsed !== "object") return [];
@@ -203,13 +199,12 @@ async function draftMealSlice(
       : `วันที่เป้าหมาย: ${dates[0]} → ${dates[dates.length - 1]} (${dateLabel}). ออกแบบ "1 วัน representative"`;
   const systemInstruction = `${commonHeader(ctx)}\n\n${DRAFT_MEAL_DESIGNER}\n\n${datesLine}`;
   try {
-    const res = await callGemini({
-      tier: overrideTier ?? "flash",
+    const res = await callLLM({
+      tier: overrideTier ?? "kimi-fast",
       systemInstruction,
       contents: [{ role: "user", parts: [{ text: message }] }],
       agent: "meal_designer",
       userId,
-      thinkingBudget: 0,
     });
     const parsed = extractJson(res.text ?? "");
     if (!parsed || typeof parsed !== "object") return [];
@@ -240,16 +235,12 @@ async function synthesize(
 ): Promise<SynthesisOutput> {
   const ctx = await buildPromptContext(userId, "orchestrator");
   const draftsBlock = `Trainer draft (workout):\n${JSON.stringify(drafts.workout, null, 2)}\n\nMeal Designer draft (meals):\n${JSON.stringify(drafts.meals, null, 2)}\n\nUser message: ${message}\nวันที่เป้าหมาย: ${dateLabel}`;
-  const res = await callGemini({
+  const res = await callLLM({
     tier,
     systemInstruction: `${commonHeader(ctx)}\n\n${SYNTHESIS_PROMPT}`,
     contents: [{ role: "user", parts: [{ text: draftsBlock }] }],
     agent: "orchestrator",
     userId,
-    // Cap reasoning so Pro/Flash 2.5 don't stall the function. Merge logic
-    // is mechanical (combine slices, scale kcal, swap exercises for
-    // sports_focus); 1024 thinking tokens is plenty.
-    thinkingBudget: 1024,
   });
   const parsed = extractJson(res.text ?? "");
   if (!parsed || typeof parsed !== "object") {
@@ -305,11 +296,11 @@ export async function runPlanSynthesis(
   ]);
   onPhase?.("รวมแผนเป็นชุดเดียว…");
 
-  // Default to Flash for synthesis — Pro 2.5 with thinking can run 20-40s
-  // and timed out the function on Vercel. Flash + capped thinkingBudget
-  // produces a usable merge in 5-10s. Users can still force Pro via the
-  // model selector if they want richer reasoning.
-  const synthTier: ModelTier = overrideTier ?? "flash";
+  // Default merge to kimi-fast (moonshot-v1-32k) — non-reasoning, ~5-15s.
+  // The k2.6 reasoning model can take 5-15 minutes on multi-day plans, which
+  // chews through serverless time budgets. Users can still force k2.6 via
+  // the model selector for richer merging on patient days.
+  const synthTier: ModelTier = overrideTier ?? "kimi-fast";
   const { plan, summary } = await synthesize(
     userId,
     message,

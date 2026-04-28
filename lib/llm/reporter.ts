@@ -11,7 +11,7 @@ import {
 } from "@/lib/db/queries";
 import { asWorkoutArray } from "@/lib/plan-types";
 import type { UserId } from "@/lib/db/schema";
-import { callGemini } from "./client";
+import { callLLM } from "./client";
 import { TZ } from "./runtime";
 import { REPORTER_PROMPT } from "./prompts";
 
@@ -131,8 +131,8 @@ ${workoutPaused ? "\nหมายเหตุ: ผู้ใช้กดหยุ
 
 สรุปและตั้งคำถามเช้านี้ให้หน่อย`;
 
-  const res = await callGemini({
-    tier: "pro",
+  const res = await callLLM({
+    tier: "kimi",
     systemInstruction: REPORTER_PROMPT,
     contents: [{ role: "user", parts: [{ text: userMessage }] }],
     agent: "reporter",
