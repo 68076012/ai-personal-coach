@@ -8,12 +8,12 @@
       "Bash(git diff:*)",
       "Bash(git log:*)",
       "Bash(git status)",
+      "Bash(git push:*)",
       "Bash(npx drizzle-kit:*)",
       "Edit",
       "Write"
     ],
     "deny": [
-      "Bash(git push:*)",
       "Bash(git reset --hard:*)",
       "Bash(rm -rf:*)"
     ]
