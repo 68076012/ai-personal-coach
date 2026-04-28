@@ -1,38 +1,21 @@
-export type ModelTier = "pro" | "flash" | "flash-lite" | "kimi" | "kimi-fast";
+export type ModelTier = "kimi" | "kimi-fast";
 
-// Display IDs. For Kimi, the actual API model id is configurable via
-// MOONSHOT_MODEL env (default "kimi-k2.6"). kimi-fast pins to the
+// Display IDs. The actual API model id for `kimi` is configurable via
+// MOONSHOT_MODEL env (default "kimi-k2.6"). `kimi-fast` pins to the
 // non-reasoning Moonshot model — useful when latency matters more than
-// reasoning depth (e.g., for chat that needs to fit a serverless timeout
+// reasoning depth (e.g., chat that needs to fit a serverless timeout
 // budget). Both tiers bill against the same Moonshot balance.
-export const GEMINI_MODEL: Record<ModelTier, string> = {
-  pro: "gemini-2.5-pro",
-  flash: "gemini-2.5-flash",
-  "flash-lite": "gemini-2.5-flash-lite",
+export const MODEL_ID: Record<ModelTier, string> = {
   kimi: process.env.MOONSHOT_MODEL ?? "kimi-k2.6",
   "kimi-fast": "moonshot-v1-32k",
 };
 
-// Kimi sits at the end of every Gemini chain as a paid last-resort.
-// kimi-fast gets its own chain that falls back to k2.6 for resilience.
+// kimi-fast falls back to k2.6 if the non-reasoning endpoint is unavailable.
+// k2.6 has no fallback — if Moonshot's reasoning model is down, the call
+// fails and the route surfaces the error to the user.
 export const FALLBACK_CHAIN: Record<ModelTier, ModelTier[]> = {
-  pro: ["pro", "flash", "flash-lite", "kimi"],
-  flash: ["flash", "flash-lite", "kimi"],
-  "flash-lite": ["flash-lite", "kimi"],
   kimi: ["kimi"],
   "kimi-fast": ["kimi-fast", "kimi"],
-};
-
-export const DAILY_CALL_CAP: Record<ModelTier, number> = {
-  pro: 90,
-  flash: 230,
-  "flash-lite": 950,
-  // Paid balance pre-loaded on Moonshot — typical chat call is ~$0.001-0.003,
-  // so the topped-up balance covers thousands of calls/month. Cap removed; the
-  // billing console is the real backstop. Use Infinity as sentinel so the cap
-  // check + admin progress bar treat it as "no limit".
-  kimi: Number.POSITIVE_INFINITY,
-  "kimi-fast": Number.POSITIVE_INFINITY,
 };
 
 export function isKimiTier(tier: ModelTier): boolean {
@@ -55,11 +38,13 @@ export interface CallOptions {
   estimatedComplexity?: "low" | "medium" | "high";
 }
 
+// Default tier picker. Reasoning-heavy work (reports, planning, complex
+// chat with high complexity) gets k2.6; everything else uses kimi-fast for
+// snappier round-trips. Users can override per request via the model
+// selector in the chat composer.
 export function chooseModel(opts: CallOptions): ModelTier {
-  if (opts.agent === "reporter") return "pro";
-  if (opts.task === "route") return "flash-lite";
-  if (opts.task === "log") return "flash-lite";
-  if (opts.task === "plan") return "pro";
-  if (opts.estimatedComplexity === "high") return "pro";
-  return "flash";
+  if (opts.agent === "reporter") return "kimi";
+  if (opts.task === "plan") return "kimi";
+  if (opts.estimatedComplexity === "high") return "kimi";
+  return "kimi-fast";
 }

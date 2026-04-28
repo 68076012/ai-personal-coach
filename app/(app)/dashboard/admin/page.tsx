@@ -2,8 +2,8 @@ import { sql } from "drizzle-orm";
 import { formatInTimeZone } from "date-fns-tz";
 import { getSession } from "@/lib/auth";
 import { db, schema } from "@/lib/db/client";
-import { AppBar, HiFiCard, Bar } from "@/components/hifi";
-import { DAILY_CALL_CAP, type AgentName } from "@/lib/llm/models";
+import { AppBar, HiFiCard } from "@/components/hifi";
+import type { AgentName } from "@/lib/llm/models";
 import { declarationsForAgent } from "@/lib/llm/tools";
 
 const TZ = "Asia/Bangkok";
@@ -55,11 +55,11 @@ export default async function AdminPage() {
   );
 
   const AGENTS: { name: AgentName; label: string; defaultTier: string; description: string }[] = [
-    { name: "orchestrator", label: "Orchestrator", defaultTier: "flash-lite", description: "Intent router — ตัดสินว่าข้อความเข้าหา agent ไหน" },
-    { name: "trainer", label: "Trainer", defaultTier: "flash", description: "Workout, form, programming, sport-specific" },
-    { name: "nutritionist", label: "Nutritionist", defaultTier: "flash", description: "Macro/calorie tracking, อาหารไทย" },
-    { name: "meal_designer", label: "Meal Designer", defaultTier: "flash → pro (plan)", description: "วางเมนู, recipe, grocery" },
-    { name: "reporter", label: "Reporter", defaultTier: "pro", description: "สรุปเช้า + คำถาม coaching" },
+    { name: "orchestrator", label: "Orchestrator", defaultTier: "kimi-fast", description: "Intent router — ตัดสินว่าข้อความเข้าหา agent ไหน" },
+    { name: "trainer", label: "Trainer", defaultTier: "kimi-fast", description: "Workout, form, programming, sport-specific" },
+    { name: "nutritionist", label: "Nutritionist", defaultTier: "kimi-fast", description: "Macro/calorie tracking, อาหารไทย" },
+    { name: "meal_designer", label: "Meal Designer", defaultTier: "kimi-fast → kimi (plan)", description: "วางเมนู, recipe, grocery" },
+    { name: "reporter", label: "Reporter", defaultTier: "kimi", description: "สรุปเช้า + คำถาม coaching" },
   ];
 
   const agentRows = AGENTS.map((a) => {
@@ -103,39 +103,24 @@ export default async function AdminPage() {
             <p className="text-sm text-[var(--ink-3)]">ยังไม่มีการเรียก</p>
           ) : (
             <div className="space-y-3">
-              {usage.map((u) => {
-                const tier = u.model.includes("kimi") || u.model.includes("moonshot")
-                  ? "kimi"
-                  : u.model.includes("pro")
-                    ? "pro"
-                    : u.model.includes("lite")
-                      ? "flash-lite"
-                      : "flash";
-                const cap = DAILY_CALL_CAP[tier as keyof typeof DAILY_CALL_CAP];
-                const capped = Number.isFinite(cap);
-                const pct = capped ? Math.round((u.total / cap) * 100) : null;
-                const barColor =
-                  pct !== null && pct >= 80 ? "coral" : pct !== null && pct >= 50 ? "sun" : "leaf";
-                return (
-                  <div key={u.model} className="space-y-1.5">
-                    <div className="flex items-baseline justify-between text-sm">
-                      <span className="font-mono text-xs text-[var(--ink-2)]">{u.model}</span>
-                      <span className="tabular text-xs text-[var(--ink-3)]">
-                        <b className="text-[var(--ink)] font-semibold">{u.total}</b>
-                        {capped ? ` / ${cap}` : " · no limit"}
-                        {u.errors > 0 && (
-                          <span className="ml-1.5 text-[var(--coral)]">· {u.errors} err</span>
-                        )}
-                      </span>
-                    </div>
-                    {capped && <Bar value={u.total} max={cap} color={barColor} />}
-                    <div className="text-[10px] text-[var(--ink-3)] tabular">
-                      tokens {u.inputTokens.toLocaleString()} in /{" "}
-                      {u.outputTokens.toLocaleString()} out
-                    </div>
+              {usage.map((u) => (
+                <div key={u.model} className="space-y-1.5">
+                  <div className="flex items-baseline justify-between text-sm">
+                    <span className="font-mono text-xs text-[var(--ink-2)]">{u.model}</span>
+                    <span className="tabular text-xs text-[var(--ink-3)]">
+                      <b className="text-[var(--ink)] font-semibold">{u.total}</b>
+                      <span className="ml-1">· paid</span>
+                      {u.errors > 0 && (
+                        <span className="ml-1.5 text-[var(--coral)]">· {u.errors} err</span>
+                      )}
+                    </span>
                   </div>
-                );
-              })}
+                  <div className="text-[10px] text-[var(--ink-3)] tabular">
+                    tokens {u.inputTokens.toLocaleString()} in /{" "}
+                    {u.outputTokens.toLocaleString()} out
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </HiFiCard>
