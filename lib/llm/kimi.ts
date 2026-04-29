@@ -134,6 +134,18 @@ export interface CallKimiParams {
   tools?: FunctionDeclaration[];
 }
 
+// K2.6 is a reasoning model. The Moonshot OpenAI-compatible endpoint puts
+// the chain-of-thought either inside `<think>...</think>` blocks within
+// `message.content` or, on some routes, in a separate `reasoning_content`
+// field that the OpenAI SDK doesn't model. Strip the inline blocks so the
+// downstream JSON extractor doesn't see them as content prefixes.
+function stripReasoningBlocks(text: string): string {
+  return text
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
+    .trim();
+}
+
 // Returns a duck-typed object compatible with the subset of GenerateContentResponse
 // the rest of the app actually reads (text, functionCalls, usageMetadata).
 export async function callKimi(
@@ -150,16 +162,28 @@ export async function callKimi(
   // 1 is allowed for this model". Letting Moonshot apply the model-specific
   // default avoids maintaining a per-model whitelist and keeps adding new
   // models risk-free.
-  const completion = await client.chat.completions.create({
-    model: params.model ?? MODEL_ID.kimi,
-    messages,
-    tools,
-    tool_choice: tools ? "auto" : undefined,
-  });
+  //
+  // max_tokens: K2.6 reasoning happily eats the default cap before reaching
+  // the JSON tail of a multi-day plan; 8192 leaves room for the chain-of-
+  // thought and the structured answer without blowing past Render's request
+  // budget. timeout: 120s caps a single Kimi call so a stuck reasoning loop
+  // can't dangle the chat SSE forever — the chat panel's heartbeat watchdog
+  // is 30s but only catches truly silent connections, not server-side hangs.
+  const completion = await client.chat.completions.create(
+    {
+      model: params.model ?? MODEL_ID.kimi,
+      messages,
+      tools,
+      tool_choice: tools ? "auto" : undefined,
+      max_tokens: 8192,
+    },
+    { timeout: 120_000 },
+  );
 
   const choice = completion.choices[0];
   const msg = choice?.message;
-  const text = typeof msg?.content === "string" ? msg.content : "";
+  const rawText = typeof msg?.content === "string" ? msg.content : "";
+  const text = stripReasoningBlocks(rawText);
 
   const functionCalls: FunctionCall[] = (msg?.tool_calls ?? [])
     .filter((tc): tc is OpenAI.Chat.Completions.ChatCompletionMessageFunctionToolCall =>

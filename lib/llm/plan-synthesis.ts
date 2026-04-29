@@ -133,20 +133,40 @@ export function resolveTargetDates(message: string, now: Date = new Date()): Res
   return { dates: [today], label: "วันนี้" };
 }
 
+// K2.6 wraps responses in `<think>...</think>` (kimi.ts strips these too,
+// kept here as a defensive layer in case a future provider doesn't), then
+// usually emits the JSON inside a ```json fence — but sometimes raw, and
+// sometimes with prose ahead of it. Try fenced blocks first (in order),
+// then fall back to the largest balanced { ... } region in the bare text.
 function extractJson(text: string): unknown | null {
-  const trimmed = text.trim();
-  // Strip optional markdown fence
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const candidate = fenced ? fenced[1].trim() : trimmed;
-  // Find largest balanced object
-  const start = candidate.indexOf("{");
-  const end = candidate.lastIndexOf("}");
-  if (start === -1 || end === -1 || end < start) return null;
-  try {
-    return JSON.parse(candidate.slice(start, end + 1));
-  } catch {
-    return null;
+  const stripped = text
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
+    .trim();
+  if (!stripped) return null;
+
+  const tryParse = (s: string): unknown | null => {
+    const start = s.indexOf("{");
+    const end = s.lastIndexOf("}");
+    if (start === -1 || end === -1 || end < start) return null;
+    try {
+      return JSON.parse(s.slice(start, end + 1));
+    } catch {
+      return null;
+    }
+  };
+
+  // Walk every fenced block and return the first one that contains parseable
+  // JSON. Earlier impl only tried the first fence, which broke when the
+  // model wrote an example fence before the actual answer fence.
+  const fenceRe = /```(?:json)?\s*([\s\S]*?)```/g;
+  let match: RegExpExecArray | null;
+  while ((match = fenceRe.exec(stripped)) !== null) {
+    const parsed = tryParse(match[1]);
+    if (parsed !== null) return parsed;
   }
+
+  return tryParse(stripped);
 }
 
 async function draftWorkoutSlice(
@@ -242,13 +262,27 @@ async function synthesize(
     agent: "orchestrator",
     userId,
   });
-  const parsed = extractJson(res.text ?? "");
+  const rawText = res.text ?? "";
+  const parsed = extractJson(rawText);
   if (!parsed || typeof parsed !== "object") {
+    // Log the head of what k2.6 actually returned so we can see why the
+    // extractor failed — without a DB roundtrip on llm_calls or stdout
+    // tail, this is the only forensic signal we get for synthesis flakes.
+    console.warn(
+      "[plan-synthesis] synthesis_returned_invalid_json — model output preview:",
+      rawText.slice(0, 800),
+    );
     throw new Error("synthesis_returned_invalid_json");
   }
   const obj = parsed as { plan?: unknown; summary_th?: unknown };
   const planResult = PlanSchema.safeParse(obj.plan);
   if (!planResult.success) {
+    console.warn(
+      "[plan-synthesis] synthesis_plan_invalid — issues:",
+      planResult.error.issues,
+      "— output preview:",
+      rawText.slice(0, 800),
+    );
     throw new Error(`synthesis_plan_invalid: ${planResult.error.issues[0]?.message}`);
   }
   const summary =
