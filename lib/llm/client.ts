@@ -1,7 +1,7 @@
 import { db } from "@/lib/db/client";
 import { llm_calls } from "@/lib/db/schema";
 import { MODEL_ID, type ModelTier } from "./models";
-import { callKimi } from "./kimi";
+import { callKimi, callKimiStream } from "./kimi";
 import type {
   Content,
   FunctionCall,
@@ -131,6 +131,56 @@ export async function callLLM(
   // Non-transient (auth, bad request, missing API key) — fail immediately.
   attempts.push({ tier, model: MODEL_ID[tier], cause: "fatal", error: errMsg });
   throw new LLMChainError("all_failed", attempts);
+}
+
+export interface CallStreamParams {
+  tier: ModelTier;
+  systemInstruction: string;
+  contents: Content[];
+  agent?: string;
+  userId?: string | null;
+  onDelta: (chunk: string) => void;
+}
+
+// Streaming entry point. No retry logic — once a chunk has hit the wire we
+// can't safely re-issue (the caller has already forwarded partial output to
+// its consumer). Transient failures bubble up; callers decide whether to
+// fall back to non-streaming `callLLM` or surface the error.
+export async function callLLMStream(
+  params: CallStreamParams,
+): Promise<GenerateContentResponse> {
+  const tier = params.tier;
+  const startedAt = Date.now();
+  try {
+    const res = await callKimiStream({
+      model: MODEL_ID[tier],
+      systemInstruction: params.systemInstruction,
+      contents: params.contents,
+      onDelta: params.onDelta,
+    });
+    void recordCall({
+      model: MODEL_ID[tier],
+      agent: params.agent,
+      userId: params.userId ?? null,
+      latencyMs: Date.now() - startedAt,
+      usage: res.usageMetadata,
+    });
+    return res;
+  } catch (err) {
+    const latencyMs = Date.now() - startedAt;
+    const errMsg = err instanceof Error ? err.message : String(err);
+    void recordCall({
+      model: MODEL_ID[tier],
+      agent: params.agent,
+      userId: params.userId ?? null,
+      latencyMs,
+      error: errMsg,
+    });
+    const cause = classifyTransient(err) ?? "fatal";
+    throw new LLMChainError(cause === "fatal" ? "all_failed" : "kimi_overload", [
+      { tier, model: MODEL_ID[tier], cause, error: errMsg },
+    ]);
+  }
 }
 
 interface CallRecord {
