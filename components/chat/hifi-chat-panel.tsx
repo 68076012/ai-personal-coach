@@ -310,11 +310,17 @@ export function HiFiChatPanel({
           error: ErrorPayload | null;
         } = { resolved: false, result: null, error: null };
 
+        // True once the first `token` lands. From that point we stop
+        // overwriting `content` with phase labels and start appending
+        // streamed prose instead.
+        let streaming = false;
+
         await readSseStream(
           res,
           (event, data) => {
             lastEventAt = Date.now();
             if (event === "phase") {
+              if (streaming) return; // don't overwrite live text with stale phase labels
               const message =
                 (data as { message?: string } | null)?.message ?? "";
               setMessages((m) =>
@@ -324,6 +330,32 @@ export function HiFiChatPanel({
                     : msg,
                 ),
               );
+            } else if (event === "token") {
+              const text = (data as { text?: string } | null)?.text ?? "";
+              if (!text) return;
+              if (!streaming) {
+                streaming = true;
+                setMessages((m) =>
+                  m.map((msg) =>
+                    msg.id === placeholderId
+                      ? {
+                          ...msg,
+                          content: text,
+                          pending: false,
+                          agent: "orchestrator",
+                        }
+                      : msg,
+                  ),
+                );
+              } else {
+                setMessages((m) =>
+                  m.map((msg) =>
+                    msg.id === placeholderId
+                      ? { ...msg, content: msg.content + text }
+                      : msg,
+                  ),
+                );
+              }
             } else if (event === "result") {
               ref.result = data as ResultPayload;
               ref.resolved = true;

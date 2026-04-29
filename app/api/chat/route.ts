@@ -3,10 +3,7 @@ import { getSession } from "@/lib/auth";
 import { LLMChainError, type LLMChainKind } from "@/lib/llm/client";
 import { runAgent } from "@/lib/llm/runtime";
 import { routeMessage, specialistsFor } from "@/lib/llm/orchestrator";
-import {
-  isPlanSynthesisRoute,
-  runPlanSynthesis,
-} from "@/lib/llm/plan-synthesis";
+import { runPlanCoach, shouldUsePlanCoach } from "@/lib/llm/plan-coach";
 import {
   TRAINER_PROMPT,
   NUTRITIONIST_PROMPT,
@@ -127,7 +124,7 @@ export async function POST(req: Request) {
 
   return makeSseResponse(async (send) => {
     let agents: Array<keyof typeof PROMPT_BY_AGENT>;
-    let synthesisSpecialists: ("trainer" | "meal_designer")[] | null = null;
+    let usePlanCoach = false;
 
     send("phase", { message: "เลือก agent ที่จะตอบ…" });
 
@@ -147,32 +144,24 @@ export async function POST(req: Request) {
         });
         return;
       }
-      const synthCheck = isPlanSynthesisRoute(parsed.data.message, routed.agents);
-      if (synthCheck.yes) synthesisSpecialists = synthCheck.specialists;
+      usePlanCoach = shouldUsePlanCoach(parsed.data.message, routed.agents);
       agents = specialistsFor(routed.agents);
     } else {
       agents = [parsed.data.agent];
     }
 
-    if (synthesisSpecialists) {
-      console.log(
-        `[/api/chat] plan-synthesis path → specialists=${synthesisSpecialists.join("+")}`,
-      );
+    if (usePlanCoach) {
+      console.log(`[/api/chat] plan-coach path (single-agent streaming)`);
       try {
-        send("phase", {
-          message:
-            synthesisSpecialists.length > 1
-              ? "ร่าง workout + เมนู…"
-              : "ร่างแผน…",
-        });
-        const result = await runPlanSynthesis({
+        const result = await runPlanCoach({
           userId,
           message: parsed.data.message,
-          specialists: synthesisSpecialists,
-          // Lets the synthesizer surface progress through the same SSE
-          // stream — drafts, merging, persisting all become phase events
-          // the user can see instead of the silent black-box wait.
           onPhase: (msg) => send("phase", { message: msg }),
+          // Forward each token straight through to the SSE stream so the
+          // chat UI renders prose incrementally instead of waiting for the
+          // whole plan to land. Heartbeat-only requests were the symptom
+          // we shipped this for.
+          onToken: (chunk) => send("token", { text: chunk }),
         });
         send("result", {
           ok: true,
@@ -184,7 +173,7 @@ export async function POST(req: Request) {
                 {
                   tool: "propose_plan_bulk",
                   args: {
-                    reason: `auto-synth: ${synthesisSpecialists.join("+")}`,
+                    reason: `auto-coach`,
                     plans: result.plansForCard,
                   },
                   result: {
@@ -206,9 +195,9 @@ export async function POST(req: Request) {
         return;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`[/api/chat] plan-synthesis failed, falling back: ${msg}`);
+        console.warn(`[/api/chat] plan-coach failed, falling back: ${msg}`);
         send("phase", {
-          message: "ลองวิธีสำรอง — ส่งให้ specialist ทีละคน…",
+          message: "ลองวิธีสำรอง — ส่งให้ specialist ตอบ…",
         });
       }
     }
