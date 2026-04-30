@@ -65,7 +65,7 @@ const UpdatePlanArgs = z.object({
 const UpdateMemoryArgs = z.object({
   key: z.string().min(1),
   value: z.string().min(1),
-  scope: z.enum(["trainer", "nutritionist", "meal_designer", "shared"]).default("shared"),
+  scope: z.enum(["trainer", "meal_designer", "shared"]).default("shared"),
   ttl_days: z.number().int().positive().optional(),
 });
 
@@ -361,7 +361,7 @@ export const TOOL_DECLARATIONS: Record<string, FunctionDeclaration> = {
         value: { type: Type.STRING },
         scope: {
           type: Type.STRING,
-          enum: ["trainer", "nutritionist", "meal_designer", "shared"],
+          enum: ["trainer", "meal_designer", "shared"],
         },
         ttl_days: { type: Type.INTEGER },
       },
@@ -495,7 +495,7 @@ export const TOOL_DECLARATIONS: Record<string, FunctionDeclaration> = {
   propose_plan_bulk: {
     name: "propose_plan_bulk",
     description:
-      "เสนอแผนหลายวัน (3-31 วัน) เป็น draft — ผู้ใช้ต้อง approve ที่หน้า /dashboard/plan ก่อนถึงจะ apply เข้าตาราง daily_plans จริง. ใช้เมื่อผู้ใช้ขอวางแผนสัปดาห์/เดือน. ห้ามใช้สำหรับวันเดียว — ใช้ update_plan แทน (เขียนตรงทันที). แต่ละ entry ใส่เฉพาะ field ที่ต้องการ (workout_plan และ/หรือ meal_plan). ตอบผู้ใช้ว่า 'ร่างแผน N วันไว้แล้ว เปิดดูและกด Approve ที่หน้าแผน'",
+      "เสนอแผน 1-31 วันเป็น draft — ผู้ใช้ต้อง approve ที่หน้า /dashboard/plan (หรือกด Apply ที่การ์ดสีส้มใน chat) ก่อน apply เข้า daily_plans. ใช้สำหรับการสร้างแผนใหม่ทุกขนาด — รวมถึง 1 วัน. update_plan/propose_meals สงวนไว้สำหรับการแก้เล็ก ๆ ที่ผู้ใช้ขอชัดเจน (toggle paused, สลับ 1 จาน). แต่ละ entry ใส่เฉพาะ field ที่ผู้ใช้ขอ — meal-only request → ใส่เฉพาะ meal_plan, workout-only → เฉพาะ workout_plan, ทั้งคู่ → ทั้งสอง field. อย่าเสริม field ที่ผู้ใช้ไม่ได้ขอ.",
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -595,9 +595,28 @@ export const TOOL_DECLARATIONS: Record<string, FunctionDeclaration> = {
 export type ToolName = keyof typeof TOOL_DECLARATIONS;
 
 export function declarationsForAgent(
-  agent: "trainer" | "nutritionist" | "meal_designer" | "reporter" | "orchestrator",
+  agent: "coach" | "trainer" | "meal_designer" | "reporter",
 ): FunctionDeclaration[] {
   switch (agent) {
+    case "coach":
+      // Every tool except internal cron-only ones. Coach is the unified
+      // chat surface: one agent, one LLM call, all capabilities.
+      return [
+        TOOL_DECLARATIONS.log_meal,
+        TOOL_DECLARATIONS.log_workout,
+        TOOL_DECLARATIONS.delete_log_entry,
+        TOOL_DECLARATIONS.update_plan,
+        TOOL_DECLARATIONS.propose_plan_bulk,
+        TOOL_DECLARATIONS.propose_meals,
+        TOOL_DECLARATIONS.save_meal,
+        TOOL_DECLARATIONS.find_saved_meal,
+        TOOL_DECLARATIONS.update_memory,
+        TOOL_DECLARATIONS.update_profile,
+        TOOL_DECLARATIONS.get_history,
+        TOOL_DECLARATIONS.get_history_summary,
+        TOOL_DECLARATIONS.search_memory,
+        TOOL_DECLARATIONS.get_plan,
+      ];
     case "trainer":
       return [
         TOOL_DECLARATIONS.log_workout,
@@ -610,17 +629,6 @@ export function declarationsForAgent(
         TOOL_DECLARATIONS.get_history_summary,
         TOOL_DECLARATIONS.search_memory,
         TOOL_DECLARATIONS.get_plan,
-      ];
-    case "nutritionist":
-      return [
-        TOOL_DECLARATIONS.log_meal,
-        TOOL_DECLARATIONS.delete_log_entry,
-        TOOL_DECLARATIONS.update_memory,
-        TOOL_DECLARATIONS.update_profile,
-        TOOL_DECLARATIONS.get_history,
-        TOOL_DECLARATIONS.get_history_summary,
-        TOOL_DECLARATIONS.search_memory,
-        TOOL_DECLARATIONS.find_saved_meal,
       ];
     case "meal_designer":
       return [
@@ -641,8 +649,6 @@ export function declarationsForAgent(
         TOOL_DECLARATIONS.search_memory,
         TOOL_DECLARATIONS.get_plan,
       ];
-    case "orchestrator":
-      return [];
   }
 }
 

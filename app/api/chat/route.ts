@@ -2,14 +2,8 @@ import { z } from "zod";
 import { getSession } from "@/lib/auth";
 import { LLMChainError, type LLMChainKind } from "@/lib/llm/client";
 import { runAgent } from "@/lib/llm/runtime";
-import { routeMessage, specialistsFor } from "@/lib/llm/orchestrator";
-import { runPlanCoach, shouldUsePlanCoach } from "@/lib/llm/plan-coach";
-import {
-  TRAINER_PROMPT,
-  NUTRITIONIST_PROMPT,
-  MEAL_DESIGNER_PROMPT,
-  REPORTER_PROMPT,
-} from "@/lib/llm/prompts";
+import type { ModelTier } from "@/lib/llm/models";
+import { COACH_PROMPT } from "@/lib/llm/prompts";
 
 const CHAIN_USER_MESSAGE: Record<LLMChainKind, string> = {
   kimi_overload:
@@ -19,23 +13,18 @@ const CHAIN_USER_MESSAGE: Record<LLMChainKind, string> = {
 };
 
 export const runtime = "nodejs";
-// On Vercel Hobby/Pro this caps the function. On Render the container runs
-// without an enforced timeout, so the value is mostly informational there.
-export const maxDuration = 120;
+// 300s is the Vercel Pro ceiling. Kimi K2.6 reasoning calls routinely
+// run 200-900s on multi-day plans, so 120s was killing the function
+// before the model could finish; 300s buys enough room for a single
+// chat turn (one outer LLM call + a few tool roundtrips). On Render
+// the container runs without an enforced timeout so the value is
+// mostly informational there.
+export const maxDuration = 300;
 
 const Body = z.object({
   message: z.string().min(1).max(4000),
-  agent: z
-    .enum(["trainer", "nutritionist", "meal_designer", "reporter", "auto"])
-    .default("auto"),
+  model: z.enum(["kimi", "auto"]).default("auto"),
 });
-
-const PROMPT_BY_AGENT = {
-  trainer: TRAINER_PROMPT,
-  nutritionist: NUTRITIONIST_PROMPT,
-  meal_designer: MEAL_DESIGNER_PROMPT,
-  reporter: REPORTER_PROMPT,
-} as const;
 
 const HEARTBEAT_MS = 5000;
 const ENC = new TextEncoder();
@@ -46,12 +35,11 @@ function sseFrame(event: string, data: unknown): Uint8Array {
   );
 }
 
-// Simple JSON-shaped SSE stream. Events emitted:
+// SSE event taxonomy:
 //   - phase   { message }   — human-readable progress label
-//   - heartbeat              — every 5s while work is in flight, no payload
-//   - result  { replies, partial_failures? } — final payload, same shape
-//                                              the old JSON response used
-//   - error   { kind?, message, details? }   — terminal failure
+//   - heartbeat              — every 5s while work is in flight
+//   - result  { replies }    — final payload (single coach reply)
+//   - error   { kind?, message, details? } — terminal failure
 // Client closes the reader on result or error.
 function makeSseResponse(
   body: (send: (event: string, data?: unknown) => void) => Promise<void>,
@@ -113,8 +101,6 @@ export async function POST(req: Request) {
   if (!session.userId) {
     return errorResponse(401, { ok: false, error: "unauthenticated" });
   }
-  // Capture under a const so the closure inside the SSE body sees a
-  // narrowed UserId, not the possibly-undefined session field.
   const userId = session.userId;
   const json = await req.json().catch(() => null);
   const parsed = Body.safeParse(json);
@@ -122,137 +108,43 @@ export async function POST(req: Request) {
     return errorResponse(400, { ok: false, error: "bad_input" });
   }
 
+  const overrideTier: ModelTier | undefined =
+    parsed.data.model === "auto" ? undefined : (parsed.data.model as ModelTier);
+
   return makeSseResponse(async (send) => {
-    let agents: Array<keyof typeof PROMPT_BY_AGENT>;
-    let usePlanCoach = false;
-
-    send("phase", { message: "เลือก agent ที่จะตอบ…" });
-
-    if (parsed.data.agent === "auto") {
-      const routed = await routeMessage(parsed.data.message);
-      if (routed.confidence < 0.6 && !routed.agents.includes("general")) {
-        send("result", {
-          ok: true,
-          replies: [
-            {
-              agent: "orchestrator",
-              reply:
-                "ยังไม่แน่ใจว่าควรให้ใครตอบดี ลองบอกเพิ่มอีกนิดได้มั้ย? เช่น เกี่ยวกับมื้ออาหาร, ออกกำลังกาย, แผนพรุ่งนี้?",
-              toolEvents: [],
-            },
-          ],
-        });
-        return;
-      }
-      usePlanCoach = shouldUsePlanCoach(parsed.data.message, routed.agents);
-      agents = specialistsFor(routed.agents);
-    } else {
-      agents = [parsed.data.agent];
-    }
-
-    if (usePlanCoach) {
-      console.log(`[/api/chat] plan-coach path (single-agent streaming)`);
-      try {
-        const result = await runPlanCoach({
-          userId,
-          message: parsed.data.message,
-          onPhase: (msg) => send("phase", { message: msg }),
-          // Forward each token straight through to the SSE stream so the
-          // chat UI renders prose incrementally instead of waiting for the
-          // whole plan to land. Heartbeat-only requests were the symptom
-          // we shipped this for.
-          onToken: (chunk) => send("token", { text: chunk }),
-        });
-        send("result", {
-          ok: true,
-          replies: [
-            {
-              agent: "orchestrator",
-              reply: result.reply,
-              toolEvents: [
-                {
-                  tool: "propose_plan_bulk",
-                  args: {
-                    reason: `auto-coach`,
-                    plans: result.plansForCard,
-                  },
-                  result: {
-                    ok: true,
-                    data: {
-                      pending_id: result.pendingPlanId,
-                      count: result.dates.length,
-                      dates: result.dates,
-                      status: "pending",
-                      review_url: "/dashboard/plan",
-                      note: "Plan saved as draft — user must approve at /dashboard/plan to apply.",
-                    },
-                  },
-                },
-              ],
-            },
-          ],
-        });
-        return;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`[/api/chat] plan-coach failed, falling back: ${msg}`);
-        send("phase", {
-          message: "ลองวิธีสำรอง — ส่งให้ specialist ตอบ…",
-        });
-      }
-    }
-
-    console.log(
-      `[/api/chat] dispatching to ${agents.length} agent(s): ${agents.join(", ")}`,
-    );
-
-    const replies: Array<{ agent: string; reply: string; toolEvents: unknown[] }> = [];
-    const failures: Array<{ agent: string; error: string; kind?: string }> = [];
-
-    for (const agent of agents) {
-      send("phase", { message: `${agent} กำลังตอบ…` });
-      try {
-        const result = await runAgent({
-          userId,
-          agent,
-          userMessage: parsed.data.message,
-          systemSuffix: PROMPT_BY_AGENT[agent],
-          task: agent === "reporter" ? "report" : "chat",
-          persistConversation: true,
-        });
-        replies.push({
-          agent: result.agent,
-          reply: result.reply,
-          toolEvents: result.toolEvents,
-        });
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        const kind = err instanceof LLMChainError ? err.kind : undefined;
-        console.warn(`[/api/chat] agent=${agent} failed:`, errMsg);
-        failures.push({ agent, error: errMsg, kind });
-      }
-    }
-
-    if (replies.length > 0) {
+    try {
+      const result = await runAgent({
+        userId,
+        agent: "coach",
+        userMessage: parsed.data.message,
+        systemSuffix: COACH_PROMPT,
+        task: "chat",
+        persistConversation: true,
+        overrideTier,
+        // Surface tool-loop progress through the SSE stream so the user
+        // sees what the model is doing instead of staring at heartbeats.
+        onPhase: (msg) => send("phase", { message: msg }),
+      });
       send("result", {
         ok: true,
-        replies,
-        ...(failures.length > 0 ? { partial_failures: failures } : {}),
+        replies: [
+          {
+            agent: result.agent,
+            reply: result.reply,
+            toolEvents: result.toolEvents,
+          },
+        ],
       });
-      return;
-    }
-
-    const firstFailure = failures[0];
-    if (firstFailure) {
-      const kind = (firstFailure.kind as LLMChainKind | undefined) ?? "all_failed";
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const kind: LLMChainKind =
+        err instanceof LLMChainError ? err.kind : "all_failed";
+      console.warn(`[/api/chat] coach failed:`, errMsg);
       send("error", {
         kind,
         message: CHAIN_USER_MESSAGE[kind],
-        details: failures,
+        details: [{ agent: "coach", error: errMsg, kind }],
       });
-      return;
     }
-
-    send("error", { message: "ไม่พบ agent ที่จะตอบ" });
   });
 }

@@ -22,6 +22,7 @@ import {
   X,
 } from "lucide-react";
 import { deleteLogEntry, repeatMealLog, restoreLogEntry } from "@/app/(app)/dashboard/actions";
+import { togglePlanItemDoneAction } from "@/app/(app)/dashboard/plan/actions";
 import { HiFiCard, Chip, Bar, BigNum, AppBar, HiFiButton } from "@/components/hifi";
 import { LogMealSheet } from "@/components/dashboard/log-meal-sheet";
 import { LogWeightSheet } from "@/components/dashboard/log-weight-sheet";
@@ -113,33 +114,85 @@ export function HiFiDashboard({
   const completion = (plan?.completion as
     | { workout_done?: number[]; meal_done?: number[] }
     | null) ?? {};
-  const mealDone = new Set(completion.meal_done ?? []);
-  const workoutDone = new Set(completion.workout_done ?? []);
-  // Today's focus = every meal + every workout from the plan, in plan
-  // order. Indices match the array positions on daily_plans so the
-  // tap-to-check writes back to the right slot. Each item is its own
-  // tickable row — no slicing, no grouping.
+  // Local optimistic completion state — taps update this immediately so
+  // the row hides without waiting for the server round-trip + revalidate.
+  // Reseed whenever the underlying plan changes (planSig captures both
+  // workout/meal arrays + the persisted completion arrays).
+  const planSig = React.useMemo(
+    () =>
+      JSON.stringify([
+        plan?.id ?? null,
+        completion.meal_done ?? [],
+        completion.workout_done ?? [],
+      ]),
+    [plan?.id, completion.meal_done, completion.workout_done],
+  );
+  const [mealDone, setMealDone] = React.useState<Set<number>>(
+    () => new Set(completion.meal_done ?? []),
+  );
+  const [workoutDone, setWorkoutDone] = React.useState<Set<number>>(
+    () => new Set(completion.workout_done ?? []),
+  );
+  React.useEffect(() => {
+    setMealDone(new Set(completion.meal_done ?? []));
+    setWorkoutDone(new Set(completion.workout_done ?? []));
+    // planSig folds the inputs we actually care about; eslint can't see that.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planSig]);
+
+  function toggleDone(kind: "meal" | "workout", index: number) {
+    const setSet = kind === "meal" ? setMealDone : setWorkoutDone;
+    const current = kind === "meal" ? mealDone : workoutDone;
+    const next = !current.has(index);
+    setSet((prev) => {
+      const out = new Set(prev);
+      if (next) out.add(index);
+      else out.delete(index);
+      return out;
+    });
+    togglePlanItemDoneAction({ date: todayDate, kind, index, done: next }).catch(
+      (err) => {
+        // Revert on failure
+        setSet((prev) => {
+          const out = new Set(prev);
+          if (next) out.delete(index);
+          else out.add(index);
+          return out;
+        });
+        toast.error(err instanceof Error ? err.message : "Update failed");
+      },
+    );
+  }
+
+  // Today's focus = pending meals + pending workouts from the plan.
+  // Done items drop out so the dashboard surfaces only what's left to
+  // tackle today. Indices stay aligned to the underlying daily_plans
+  // arrays so taps write back to the right slot.
   const previewItems = [
-    ...planMeals.map((m, i) => ({
-      kind: "meal" as const,
-      index: i,
-      name: m.name ?? "?",
-      meta: m.kcal ? `${m.kcal} ${t("kcal_short", lang)}` : "",
-      done: mealDone.has(i),
-    })),
-    ...planWorkouts.map((w, i) => ({
-      kind: "workout" as const,
-      index: i,
-      name: w.exercise ?? "?",
-      meta: [
-        w.sets ? `${w.sets}×${w.reps ?? "?"}` : "",
-        w.weight_kg ? `${w.weight_kg}kg` : "",
-        w.duration_min ? `${w.duration_min}min` : "",
-      ]
-        .filter(Boolean)
-        .join(" · "),
-      done: workoutDone.has(i),
-    })),
+    ...planMeals
+      .map((m, i) => ({
+        kind: "meal" as const,
+        index: i,
+        name: m.name ?? "?",
+        meta: m.kcal ? `${m.kcal} ${t("kcal_short", lang)}` : "",
+        done: mealDone.has(i),
+      }))
+      .filter((it) => !it.done),
+    ...planWorkouts
+      .map((w, i) => ({
+        kind: "workout" as const,
+        index: i,
+        name: w.exercise ?? "?",
+        meta: [
+          w.sets ? `${w.sets}×${w.reps ?? "?"}` : "",
+          w.weight_kg ? `${w.weight_kg}kg` : "",
+          w.duration_min ? `${w.duration_min}min` : "",
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        done: workoutDone.has(i),
+      }))
+      .filter((it) => !it.done),
   ];
 
   return (
@@ -314,10 +367,14 @@ export function HiFiDashboard({
                 name={it.name}
                 meta={it.meta}
                 done={it.done}
-                date={todayDate}
+                onToggle={() => toggleDone(it.kind, it.index)}
                 lang={lang}
               />
             ))
+          ) : planMeals.length + planWorkouts.length > 0 ? (
+            <HiFiCard className="p-5 text-center text-[13px] text-[var(--ink-3)]">
+              {lang === "th" ? "✅ ครบหมดแล้ววันนี้ เก่งมาก!" : "✅ All done for today — nice work!"}
+            </HiFiCard>
           ) : (
             <HiFiCard className="p-5 text-center text-[13px] text-[var(--ink-3)]">
               {lang === "th" ? "ยังไม่มีแผนวันนี้ — แตะ \"แผน\" เพื่อให้โค้ชช่วย" : 'No plan today — tap Plan to have the coach lay one out'}
@@ -394,23 +451,26 @@ function PlanPreviewItem({
   name,
   meta,
   done,
+  onToggle,
 }: {
   kind: "meal" | "workout";
   index: number;
   name: string;
   meta: string;
   done: boolean;
-  date: string;
+  onToggle: () => void;
   lang: Lang;
 }) {
-  // Read-only mirror — Plan page is the single editing surface for
-  // ticking items off. Same daily_plans.completion column, so checks
-  // applied on /plan show up here on next render.
+  // Tap-to-tick. Optimistic write happens in the parent (toggleDone);
+  // done rows are filtered out of the preview so the dashboard always
+  // surfaces only what's still pending today.
   return (
-    <div
+    <button
+      type="button"
+      onClick={onToggle}
       className={cn(
-        "w-full p-3 flex items-center gap-3 rounded-[var(--r-lg)] border bg-[var(--surface)]",
-        "border-[var(--line)]",
+        "w-full p-3 flex items-center gap-3 rounded-[var(--r-lg)] border bg-[var(--surface)] text-left",
+        "border-[var(--line)] transition-transform active:scale-[0.99]",
         done && "opacity-60",
       )}
     >
@@ -442,7 +502,7 @@ function PlanPreviewItem({
       ) : (
         <Circle className="size-5 text-[var(--ink-4)] shrink-0" />
       )}
-    </div>
+    </button>
   );
 }
 // suppress unused

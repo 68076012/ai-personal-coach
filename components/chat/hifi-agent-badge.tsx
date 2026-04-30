@@ -2,6 +2,15 @@ import { Dumbbell, Apple, ChefHat, FileText, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const AGENT_META = {
+  // "coach" is the unified chat agent. The legacy specialist entries are
+  // kept so historical assistant rows (filed under their old agent_type)
+  // still render with the badge they originally shipped with.
+  coach: {
+    label: "Coach",
+    emoji: "✨",
+    icon: Sparkles,
+    tone: "bg-[var(--accent-soft)] text-[var(--accent)]",
+  },
   trainer: {
     label: "Trainer",
     emoji: "💪",
@@ -37,7 +46,7 @@ const AGENT_META = {
 export type AgentKey = keyof typeof AGENT_META;
 
 export function HiFiAgentBadge({ agent }: { agent: AgentKey }) {
-  const meta = AGENT_META[agent] ?? AGENT_META.orchestrator;
+  const meta = AGENT_META[agent] ?? AGENT_META.coach;
   return (
     <span
       className={cn(

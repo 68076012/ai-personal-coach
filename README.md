@@ -7,13 +7,13 @@ Built for $0/mo using Vercel Hobby + Supabase free + Gemini free tier with smart
 ## What it does
 
 - **Chat-first.** Type *"กินข้าวเที่ยงผัดไทย 1 จาน"* — Nutritionist estimates 710 kcal / P20 / C90 / F30, persists it, tells you the remaining macro budget. Type *"Squat 80kg 5x5 RPE 8"* — Trainer logs it. Type *"คืนนี้ติดประชุม"* — Trainer stores the constraint and proposes a rescheduled plan you can Apply right inside the chat bubble.
-- **Five specialist agents.** Orchestrator (intent router), Trainer 💪, Nutritionist 🥗, Meal Designer 🍽, Reporter 📊. Compound prompts (*"วาง workout + เมนูทั้งวัน"*) fan out to multiple agents simultaneously, each producing its own reply with its own Apply card.
+- **One unified coach.** Every chat message goes through a single Coach ✨ agent that has every tool (logging, planning, memory, profile, history). Cron-only specialists (Trainer 💪, Meal Designer 🍽, Reporter 📊) compose tomorrow's plan + the morning summary in the background.
 - **Approval-gated plan writes.** Every plan creation goes through `propose_plan_bulk` → pending row → user taps **Apply** in chat (or on `/dashboard/plan`). Single-day or 31-day, same flow. No silent overwrites of today's plan.
 - **Persistent memory + library.** Long-term constraints (injuries, allergies, pantry, sport focus, monthly goals) live in `agent_memory` and surface on every prompt. Saved meals live in `meal_library` and surface to the agent for re-use; the dashboard's *"Repeat yesterday's lunch"* tile is one-tap re-log.
-- **Daily morning report + nightly plan.** Vercel cron at 07:00 ICT generates a Pro-tier coaching summary; 21:00 ICT pre-plans tomorrow's meals and workout, prunes expired memory, archives 30-day-old conversations into weekly summaries.
+- **Daily morning report + nightly plan.** Vercel cron at 07:00 ICT generates a Kimi-K2.6 coaching summary; 21:00 ICT pre-plans tomorrow's meals and workout, prunes expired memory, archives 30-day-old conversations into weekly summaries.
 - **Mobile-first redesign (Hi-Fi).** Warm-paper palette, per-user accent (coral for Garfield / teal for Mai), bottom tab bar (Home / Plan / Chat / Progress / Library), inline tool-call cards, full-screen Morning Report takeover, BottomSheet quick-logs.
 - **Bilingual.** Every UI string flows through `t(key, lang)`; toggle in Settings flips TH ↔ EN.
-- **One model, one bill.** Every LLM call goes to **Kimi K2.6** on Moonshot — single transient retry on 429/5xx, no fallback chain to debug.
+- **Single-provider runtime.** Every LLM call lands on Moonshot Kimi K2.6 (reasoning) via the `openai` SDK. Transient 5xx/overload triggers a single retry; otherwise the route surfaces the error verbatim to the user.
 
 ## Stack
 
@@ -21,18 +21,17 @@ Next.js 16 (App Router) · TypeScript · Tailwind v4 · shadcn/ui (Radix) · Dri
 
 ```
 lib/llm/
-  client.ts         # Kimi K2.6 entry point with single retry-after-2s on transient errors
-  kimi.ts           # Moonshot OpenAI-compatible adapter (Content[]/FunctionDeclaration[] ↔ OpenAI messages/tools)
-  models.ts         # single-tier model id (resolved from MOONSHOT_MODEL env)
-  orchestrator.ts   # regex fast-path + K2.6 intent router; returns array of agents for compound prompts
-  runtime.ts        # tool-call loop, per-agent conversation persistence, tool_code text sanitizer
+  client.ts         # Single Kimi entry point with retry-once on transient errors, telemetry, LLMChainError taxonomy
+  kimi.ts           # Moonshot OpenAI-compatible adapter (translates Gemini-style contents/tools ↔ OpenAI messages/tools)
+  models.ts         # AgentName + ModelTier definitions; chooseModel() default (currently always "kimi")
+  runtime.ts        # tool-call loop for any agent (coach for chat, trainer/meal_designer/reporter for cron); persists conversations and emits onPhase progress
   reporter.ts       # morning summary; rebalance-on-miss + monthly goal surfacing
   archive.ts        # nightly conversation archival (>30d → weekly summary in agent_memory)
   sanitize.ts       # strips tool_code / thought blocks the model sometimes emits as text
-  tools.ts          # 18 tools: log_meal/workout, propose_plan_bulk, save_meal, find_saved_meal,
+  tools.ts          # 14 tools: log_meal/workout, propose_plan_bulk, save_meal, find_saved_meal,
                     #   delete_log_entry, get_history, get_history_summary, search_memory,
                     #   update_memory, update_profile, update_plan, propose_meals, get_plan
-  prompts.ts        # Thai system prompts per agent + commonHeader (user profile + memory + recent logs)
+  prompts.ts        # Thai system prompts (COACH_PROMPT for chat, plus cron-only TRAINER/MEAL_DESIGNER/REPORTER) + commonHeader
 
 lib/db/
   schema.ts         # users, meals, workouts, daily_logs, daily_plans (with completion jsonb),
@@ -57,18 +56,18 @@ components/
 app/(app)/dashboard/
   page.tsx          # Today: hero kcal ring, repeat-yesterday strip, quick-log tiles, today plan,
                     #   recent logs (with HH:mm + X-to-delete + 5s undo), inline morning report
-  chat/             # full-screen chat with abort + multi-agent fanout
+  chat/             # full-screen chat — single coach agent, SSE streaming with phase + heartbeat
   plan/             # Today / Week / Month tabs, pending banner, per-row done checkboxes, delete-plan
   progress/         # weight + kcal + volume charts, 7d/30d/90d range picker
   library/          # meal library list with filter chips + 1-tap "Use" → log_meal
   couple/           # vs. comparison: kcal today, weight, shared training week (7-col, ★ when both trained)
   morning/          # full-screen 4-slide story takeover (Hello → Recap → Streak → Today)
   settings/         # consolidated "เกี่ยวกับ {name}" card + language + theme + sign out + danger zone
-  admin/            # Kimi call/error/token totals, agent registry, DB row counts
+  admin/            # daily Kimi usage stats, agent registry, DB row counts
 
 app/api/
-  chat/             # main endpoint; orchestrator → multi-agent dispatch → resilient per-agent loop
-  cron/morning-report/  # 07:00 ICT — K2.6 summary, optional LINE push, missed-workout rebalance
+  chat/             # main endpoint; SSE stream → single runAgent("coach") → tool-call loop
+  cron/morning-report/  # 07:00 ICT — Pro-tier summary, optional LINE push, missed-workout rebalance
   cron/nightly-plan/    # 21:00 ICT — pre-plan tomorrow + prune expired memory + archive convos
 
 proxy.ts            # Next 16 proxy — protects /dashboard/*
@@ -76,7 +75,7 @@ proxy.ts            # Next 16 proxy — protects /dashboard/*
 
 ## Get started
 
-You'll need: Node 22+, pnpm, a Supabase project, and a Moonshot API key for Kimi K2.6.
+You'll need: Node 22+, pnpm, a Supabase project, and a Moonshot API key (Kimi K2.6 powers every LLM call).
 
 ```bash
 pnpm install
@@ -88,7 +87,7 @@ Fill `.env.local`:
 | Variable | Where to get it |
 |---|---|
 | `DATABASE_URL` | Supabase → Connect → **Transaction pooler** (port 6543). URL-encode any `@:/#?&%` in the password. |
-| `MOONSHOT_API_KEY` | [platform.moonshot.ai](https://platform.moonshot.ai) — required. The app routes every LLM call to Kimi K2.6 (reasoning). |
+| `MOONSHOT_API_KEY` | [platform.moonshot.ai](https://platform.moonshot.ai) — required. The app uses Kimi K2.6 (reasoning) for every LLM call. |
 | `MOONSHOT_MODEL` | (optional) override the K2.6 model id; default `kimi-k2.6` |
 | `MOONSHOT_BASE_URL` | (optional) `https://api.moonshot.cn/v1` for the China endpoint |
 | `AUTH_SECRET` | Any 32+ char hex (`openssl rand -hex 32`) |

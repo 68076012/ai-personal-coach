@@ -1,23 +1,25 @@
-// The app runs on a single Moonshot reasoning model — Kimi K2.6.
-// `ModelTier` stays as a one-member union (rather than dropping the type
-// entirely) so callers like `runAgent({ overrideTier })` keep their existing
-// signatures and we can re-introduce more tiers later without touching them.
 export type ModelTier = "kimi";
 
-// Actual API model id is configurable via MOONSHOT_MODEL env (default
-// "kimi-k2.6") to accommodate alias drift on the Moonshot side.
+// Display IDs. The actual API model id for `kimi` is configurable via
+// MOONSHOT_MODEL env (default "kimi-k2.6").
 export const MODEL_ID: Record<ModelTier, string> = {
   kimi: process.env.MOONSHOT_MODEL ?? "kimi-k2.6",
 };
 
+// k2.6 has no fallback — if Moonshot's reasoning model is down, the call
+// fails and the route surfaces the error to the user.
+export const FALLBACK_CHAIN: Record<ModelTier, ModelTier[]> = {
+  kimi: ["kimi"],
+};
+
+// "coach" handles every chat message (one general agent with all tools).
+// trainer / meal_designer remain because the nightly-plan cron drives them
+// directly to compose tomorrow's plan without going through chat. reporter
+// is invoked by the morning-report cron.
 export type AgentName =
-  | "orchestrator"
+  | "coach"
   | "trainer"
-  | "nutritionist"
   | "meal_designer"
   | "reporter";
 
-// Kept on `RunAgentInput` for documentation purposes and so the cron jobs
-// (which still tag their calls with task/complexity hints) keep type-checking
-// even though the LLM call itself no longer branches on them.
 export type Task = "route" | "log" | "chat" | "plan" | "report";

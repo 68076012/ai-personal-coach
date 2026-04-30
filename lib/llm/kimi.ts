@@ -134,15 +134,6 @@ export interface CallKimiParams {
   tools?: FunctionDeclaration[];
 }
 
-export interface CallKimiStreamParams {
-  model?: string;
-  systemInstruction: string;
-  contents: Content[];
-  // Tool calls aren't supported on the streaming path yet — plan-coach
-  // emits JSON inline in the assistant text, so we don't need them.
-  onDelta: (chunk: string) => void;
-}
-
 // Returns a duck-typed object compatible with the subset of GenerateContentResponse
 // the rest of the app actually reads (text, functionCalls, usageMetadata).
 export async function callKimi(
@@ -191,64 +182,6 @@ export async function callKimi(
   const shaped = {
     text,
     functionCalls: functionCalls.length ? functionCalls : undefined,
-    usageMetadata: usage
-      ? {
-          promptTokenCount: usage.prompt_tokens,
-          candidatesTokenCount: usage.completion_tokens,
-          totalTokenCount: usage.total_tokens,
-        }
-      : undefined,
-  } as unknown as GenerateContentResponse;
-
-  return shaped;
-}
-
-// Streaming variant. Forwards each `choices[0].delta.content` chunk to
-// `onDelta` as the model produces it, and resolves with the same shape as
-// `callKimi` once the stream closes. Used by plan-coach so the chat UI sees
-// tokens flow instead of a 30-90s heartbeat-only wait.
-//
-// Tool calls aren't surfaced here — plan-coach formats its answer as plain
-// text + a JSON block, and parses the JSON server-side. If we ever need
-// tools in a streamed path, this returns an empty `functionCalls` and
-// callers must fall back to non-streaming.
-export async function callKimiStream(
-  params: CallKimiStreamParams,
-): Promise<GenerateContentResponse> {
-  const client = getClient();
-  const messages = contentsToMessages(params.systemInstruction, params.contents);
-
-  const stream = await client.chat.completions.create({
-    model: params.model ?? MODEL_ID.kimi,
-    messages,
-    stream: true,
-    // Moonshot honours OpenAI's `stream_options.include_usage` and emits the
-    // usage block on the final chunk so we can keep llm_calls telemetry
-    // accurate even on streamed calls.
-    stream_options: { include_usage: true },
-  });
-
-  let fullText = "";
-  let usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined;
-
-  for await (const chunk of stream) {
-    const delta = chunk.choices?.[0]?.delta?.content;
-    if (typeof delta === "string" && delta.length > 0) {
-      fullText += delta;
-      params.onDelta(delta);
-    }
-    if (chunk.usage) {
-      usage = {
-        prompt_tokens: chunk.usage.prompt_tokens,
-        completion_tokens: chunk.usage.completion_tokens,
-        total_tokens: chunk.usage.total_tokens,
-      };
-    }
-  }
-
-  const shaped = {
-    text: fullText,
-    functionCalls: undefined,
     usageMetadata: usage
       ? {
           promptTokenCount: usage.prompt_tokens,

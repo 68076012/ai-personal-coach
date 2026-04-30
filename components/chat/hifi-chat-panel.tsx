@@ -3,18 +3,29 @@
 import * as React from "react";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Send, Square } from "lucide-react";
+import { ChevronDown, Send, Sparkles, Square } from "lucide-react";
 import { toast } from "sonner";
 import { HiFiAgentBadge, type AgentKey } from "./hifi-agent-badge";
 import { HiFiToolCard, type ToolEvent } from "./hifi-tool-card";
 import { type Lang, t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
+type ModelChoice = "auto" | "kimi";
+
+const MODEL_LABEL: Record<ModelChoice, string> = {
+  auto: "Auto",
+  kimi: "Kimi K2.6",
+};
+
+const MODEL_ORDER: ModelChoice[] = ["auto", "kimi"];
+
+const MODEL_STORAGE_KEY = "chat:model";
+
 // Optimistic in-flight tracking. When the user sends a message, we stash it
 // here BEFORE the fetch starts so the bubble survives page refresh / tab
-// close / mid-flight reload. The server-side conversations write happens a
-// few hundred ms later inside runPlanSynthesis, so a fast refresh would
-// otherwise see no record yet and lose the user's question.
+// close / mid-flight reload. The server-side conversations write happens
+// at the END of runAgent, so a fast refresh would otherwise see no record
+// yet and lose the user's question.
 const IN_FLIGHT_KEY = "chat:in-flight";
 const IN_FLIGHT_TTL_MS = 5 * 60 * 1000;
 
@@ -146,23 +157,33 @@ export interface HiFiChatMessageData {
 
 interface Props {
   initialMessages?: HiFiChatMessageData[];
-  defaultAgent?: AgentKey | "auto";
   initialDraft?: string;
   lang: Lang;
 }
 
 export function HiFiChatPanel({
   initialMessages = [],
-  defaultAgent = "auto",
   initialDraft = "",
   lang,
 }: Props) {
   const [messages, setMessages] = useState<HiFiChatMessageData[]>(initialMessages);
   const [input, setInput] = useState(initialDraft);
   const [pending, startTransition] = useTransition();
+  const [model, setModel] = useState<ModelChoice>("auto");
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const modelMenuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+
+  // Hydrate model choice from localStorage after mount (avoids SSR mismatch).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = window.localStorage.getItem(MODEL_STORAGE_KEY);
+    if (saved && (MODEL_ORDER as string[]).includes(saved)) {
+      setModel(saved as ModelChoice);
+    }
+  }, []);
 
   // Restore optimistic in-flight state on mount. If the user sent a message
   // and refreshed/closed the tab before the response arrived, surface their
@@ -210,7 +231,7 @@ export function HiFiChatPanel({
         role: "assistant",
         content: "",
         pending: true,
-        agent: "orchestrator",
+        agent: "coach",
       },
     ]);
     // Best-effort: poll for the reply landing in conversations every 4s
@@ -229,6 +250,27 @@ export function HiFiChatPanel({
     // load creates a new HiFiChatPanel mount with fresh initialMessages.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Close menu when clicking outside.
+  useEffect(() => {
+    if (!modelMenuOpen) return;
+    function onDoc(ev: MouseEvent) {
+      if (!modelMenuRef.current) return;
+      if (!modelMenuRef.current.contains(ev.target as Node)) {
+        setModelMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [modelMenuOpen]);
+
+  function chooseModelChoice(next: ModelChoice) {
+    setModel(next);
+    setModelMenuOpen(false);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(MODEL_STORAGE_KEY, next);
+    }
+  }
 
   // Run after every paint so the scroll area is laid out with its real
   // height before we ask it to scroll. First paint = "auto" (instant) so
@@ -285,7 +327,7 @@ export function HiFiChatPanel({
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ message: text, agent: defaultAgent }),
+          body: JSON.stringify({ message: text, model }),
           signal: ctrl.signal,
         });
         if (!res.ok) {
@@ -310,17 +352,11 @@ export function HiFiChatPanel({
           error: ErrorPayload | null;
         } = { resolved: false, result: null, error: null };
 
-        // True once the first `token` lands. From that point we stop
-        // overwriting `content` with phase labels and start appending
-        // streamed prose instead.
-        let streaming = false;
-
         await readSseStream(
           res,
           (event, data) => {
             lastEventAt = Date.now();
             if (event === "phase") {
-              if (streaming) return; // don't overwrite live text with stale phase labels
               const message =
                 (data as { message?: string } | null)?.message ?? "";
               setMessages((m) =>
@@ -330,32 +366,6 @@ export function HiFiChatPanel({
                     : msg,
                 ),
               );
-            } else if (event === "token") {
-              const text = (data as { text?: string } | null)?.text ?? "";
-              if (!text) return;
-              if (!streaming) {
-                streaming = true;
-                setMessages((m) =>
-                  m.map((msg) =>
-                    msg.id === placeholderId
-                      ? {
-                          ...msg,
-                          content: text,
-                          pending: false,
-                          agent: "orchestrator",
-                        }
-                      : msg,
-                  ),
-                );
-              } else {
-                setMessages((m) =>
-                  m.map((msg) =>
-                    msg.id === placeholderId
-                      ? { ...msg, content: msg.content + text }
-                      : msg,
-                  ),
-                );
-              }
             } else if (event === "result") {
               ref.result = data as ResultPayload;
               ref.resolved = true;
@@ -418,8 +428,9 @@ export function HiFiChatPanel({
           toast.error(errMsg);
         }
         // On error or explicit abort, drop the optimistic state. The server
-        // may have already persisted the user message via runPlanSynthesis;
-        // if so, it'll show on next refresh without the optimistic bubble.
+        // may have already persisted the user message via runAgent's final
+        // logTurn pass; if so, it'll show on next refresh without the
+        // optimistic bubble.
         clearInFlight();
         setMessages((m) => m.filter((x) => x.id !== placeholderId));
       } finally {
@@ -474,6 +485,63 @@ export function HiFiChatPanel({
         style={{ paddingBottom: "max(env(safe-area-inset-bottom), 8px)" }}
       >
         <div className="mx-auto flex w-full max-w-2xl items-end gap-2">
+          {/* Model selector. Currently only k2.6 ships, so the picker is
+              effectively cosmetic — kept around so re-introducing tiers
+              later doesn't require a UI rebuild. */}
+          <div ref={modelMenuRef} className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => setModelMenuOpen((v) => !v)}
+              aria-label={lang === "th" ? "เลือกโมเดล" : "Choose model"}
+              aria-haspopup="menu"
+              aria-expanded={modelMenuOpen}
+              title={
+                lang === "th"
+                  ? `โมเดล: ${MODEL_LABEL[model]}`
+                  : `Model: ${MODEL_LABEL[model]}`
+              }
+              className={cn(
+                "h-10 px-2.5 rounded-full inline-flex items-center gap-1 text-xs font-medium",
+                "bg-[var(--surface-2)] text-[var(--ink-2)] hover:text-[var(--ink)]",
+                "transition-colors active:scale-[0.97]",
+              )}
+            >
+              <Sparkles className="size-3.5" />
+              <span className="tabular-nums">{MODEL_LABEL[model]}</span>
+              <ChevronDown className="size-3" />
+            </button>
+            {modelMenuOpen && (
+              <div
+                role="menu"
+                className={cn(
+                  "absolute bottom-12 left-0 z-50 min-w-[140px] rounded-[12px] border border-[var(--line)]",
+                  "bg-[var(--surface)] shadow-lg p-1",
+                )}
+              >
+                {MODEL_ORDER.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={model === m}
+                    onClick={() => chooseModelChoice(m)}
+                    className={cn(
+                      "w-full text-left px-2.5 py-1.5 rounded-[8px] text-xs",
+                      "hover:bg-[var(--surface-2)] transition-colors",
+                      model === m
+                        ? "bg-[var(--accent-soft)] text-[var(--accent)] font-semibold"
+                        : "text-[var(--ink-2)]",
+                    )}
+                  >
+                    {MODEL_LABEL[m]}
+                    {m === "kimi" && (
+                      <span className="ml-1 text-[10px] text-[var(--ink-3)]">paid</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}

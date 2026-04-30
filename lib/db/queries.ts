@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, ilike, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, ilike, inArray, lt, or, sql } from "drizzle-orm";
 import { db } from "./client";
 import {
   agent_memory,
@@ -333,6 +333,29 @@ export async function getConversationHistory(
       and(
         eq(conversations.user_id, userId),
         eq(conversations.agent_type, agentType),
+      ),
+    )
+    .orderBy(desc(conversations.created_at))
+    .limit(limit);
+  return rows.reverse();
+}
+
+// Cross-agent history for the unified coach. Pulls the user's last N
+// conversation turns regardless of which agent_type they were filed
+// under, so old per-specialist turns (trainer, meal_designer, …) still
+// flow into the coach's short-term context after the migration. Tool
+// rows are skipped — only user/assistant pairs are useful for the LLM.
+export async function getCoachConversationHistory(
+  userId: UserId,
+  limit = 10,
+) {
+  const rows = await db
+    .select()
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.user_id, userId),
+        inArray(conversations.role, ["user", "assistant"]),
       ),
     )
     .orderBy(desc(conversations.created_at))
