@@ -114,8 +114,8 @@ async function attemptCall(
   }
 }
 
-// Single LLM entry point. Walks FALLBACK_CHAIN[tier] (e.g. kimi-fast → kimi)
-// and retries the last tier once on transient errors before giving up.
+// Single LLM entry point. Walks FALLBACK_CHAIN[tier] and retries the last
+// tier once on transient errors before giving up.
 export async function callLLM(
   params: CallParams,
 ): Promise<GenerateContentResponse> {

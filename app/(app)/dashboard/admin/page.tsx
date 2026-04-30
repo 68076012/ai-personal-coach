@@ -55,11 +55,10 @@ export default async function AdminPage() {
   );
 
   const AGENTS: { name: AgentName; label: string; defaultTier: string; description: string }[] = [
-    { name: "orchestrator", label: "Orchestrator", defaultTier: "kimi-fast", description: "Intent router — ตัดสินว่าข้อความเข้าหา agent ไหน" },
-    { name: "trainer", label: "Trainer", defaultTier: "kimi-fast", description: "Workout, form, programming, sport-specific" },
-    { name: "nutritionist", label: "Nutritionist", defaultTier: "kimi-fast", description: "Macro/calorie tracking, อาหารไทย" },
-    { name: "meal_designer", label: "Meal Designer", defaultTier: "kimi-fast → kimi (plan)", description: "วางเมนู, recipe, grocery" },
-    { name: "reporter", label: "Reporter", defaultTier: "kimi", description: "สรุปเช้า + คำถาม coaching" },
+    { name: "coach", label: "Coach", defaultTier: "kimi", description: "Unified chat agent — ทุก message ผ่าน coach call เดียว มี tool ครบ" },
+    { name: "trainer", label: "Trainer (cron)", defaultTier: "kimi", description: "Nightly-plan cron เรียกตรง — ออกแบบ workout พรุ่งนี้" },
+    { name: "meal_designer", label: "Meal Designer (cron)", defaultTier: "kimi", description: "Nightly-plan cron เรียกตรง — วางเมนูพรุ่งนี้" },
+    { name: "reporter", label: "Reporter (cron)", defaultTier: "kimi", description: "Morning-report cron — สรุปเช้า + คำถาม coaching" },
   ];
 
   const agentRows = AGENTS.map((a) => {

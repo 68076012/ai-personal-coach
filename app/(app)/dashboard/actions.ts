@@ -21,10 +21,10 @@ const DeleteEntryInput = z.object({
   id: z.string().uuid(),
 });
 
-// Quick-log form on the dashboard. Bypasses the chat → orchestrator →
-// nutritionist → log_meal path when the user already knows the macros
-// (e.g. "another bowl of the usual pad ka prao"). Falls back to chat
-// for unknown foods via the "Ask coach instead" link inside the sheet.
+// Quick-log form on the dashboard. Bypasses the chat → coach → log_meal
+// path when the user already knows the macros (e.g. "another bowl of
+// the usual pad ka prao"). Falls back to chat for unknown foods via the
+// "Ask coach instead" link inside the sheet.
 const QuickLogMealInput = z.object({
   meal_type: z.enum(["breakfast", "lunch", "dinner", "snack"]),
   food_name: z.string().min(1).max(200),

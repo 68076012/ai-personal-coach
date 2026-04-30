@@ -163,6 +163,9 @@ function DayPreview({ day }: { day: PendingPlanDay }) {
 
 function formatSource(s: string): string {
   const map: Record<string, string> = {
+    "chat:coach": "Coach",
+    // Legacy values from the multi-agent era — older pending_plans rows
+    // may still surface with these sources.
     "chat:orchestrator": "Coach (orchestrated)",
     "chat:trainer": "Trainer",
     "chat:meal_designer": "Meal Designer",

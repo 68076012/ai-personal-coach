@@ -11,7 +11,10 @@ import { t } from "@/lib/i18n";
 import type { UserId } from "@/lib/db/schema";
 
 const VISIBLE_ROLES = new Set(["user", "assistant"]);
+// Includes legacy specialist agent_types so historical rows (pre-coach
+// migration) still render with the badge they originally shipped under.
 const KNOWN_AGENTS: AgentKey[] = [
+  "coach",
   "trainer",
   "nutritionist",
   "meal_designer",
@@ -22,19 +25,13 @@ const KNOWN_AGENTS: AgentKey[] = [
 function asAgent(value: string): AgentKey {
   return (KNOWN_AGENTS as string[]).includes(value)
     ? (value as AgentKey)
-    : "orchestrator";
+    : "coach";
 }
 
-// Multi-agent dispatch: /api/chat runs each agent sequentially and each
-// runAgent logs its own copy of the user message under its own agent_type
-// (so per-agent conversation history stays coherent). On reload that
-// produces N consecutive identical user bubbles separated by assistant
-// replies. Fold them into one.
-//
-// Heuristic: if a user msg's content matches another user msg within the
-// last 6 hops of the rendered list, it's a multi-agent dispatch
-// duplicate — skip it. 6 hops covers up to 3 agents × 2 rows each, which
-// is the realistic upper bound for compound-prompt routing.
+// Old multi-agent dispatch wrote one copy of the user message under each
+// specialist's agent_type, producing N consecutive identical user bubbles
+// on reload. Pre-migration rows still need to be folded; post-migration
+// every chat turn is a single coach row so this is a no-op for new data.
 function dedupMultiAgentUserMsgs(
   msgs: HiFiChatMessageData[],
 ): HiFiChatMessageData[] {
@@ -71,10 +68,6 @@ export default async function ChatPage({
       .from(schema.conversations)
       .where(eq(schema.conversations.user_id, userId))
       .orderBy(desc(schema.conversations.created_at))
-      // Bumped from 40 → 100. Multi-agent dispatch writes 3 rows per agent
-      // (user + tool + assistant), so a single compound prompt can be 6+ rows.
-      // The conversation_archival cron now keeps this table bounded long-term,
-      // so the higher limit doesn't grow unboundedly.
       .limit(100)
       .catch(() => []),
     getLang(),
@@ -85,12 +78,10 @@ export default async function ChatPage({
     .slice()
     .reverse()
     .map((r) => {
-      // Synthesis path attaches tool_calls directly to the assistant row
-      // (single-row pattern) so the Apply/Reject card can re-render on
-      // reload. Per-agent path stores tool calls on a separate "tool" row
-      // which is filtered out above — those won't show their cards on
-      // history reload, which is fine since their cards are mostly
-      // informational.
+      // runAgent attaches tool events to the assistant row directly so
+      // tool cards (e.g. propose_plan_bulk's Apply/Reject) can re-render
+      // when the user reloads the chat. Legacy "tool" rows from older
+      // dispatch paths are filtered out by VISIBLE_ROLES above.
       const toolEvents: ToolEvent[] | undefined =
         r.role === "assistant" && Array.isArray(r.tool_calls)
           ? (r.tool_calls as ToolEvent[])
@@ -164,11 +155,10 @@ export default async function ChatPage({
   let initial = dedupMultiAgentUserMsgs(mapped);
 
   // If the most recent persisted row is a user message from the last
-  // 5 minutes, an LLM call is probably still in flight server-side
-  // (most commonly the synthesis path, which can take 15-30s; the
-  // window is generous so a slow cold-started Render container or a
-  // Kimi K2.6 reasoning round still shows the "..." indicator instead
-  // of looking abandoned).
+  // 5 minutes, the coach call is probably still in flight server-side.
+  // The window is generous so a slow Kimi K2.6 reasoning round
+  // (200-900s) still shows the "..." indicator instead of looking
+  // abandoned.
   const PENDING_WINDOW_MS = 5 * 60 * 1000;
   const latestVisible = visibleRows[0];
   if (
@@ -183,7 +173,7 @@ export default async function ChatPage({
         role: "assistant",
         content: "",
         pending: true,
-        agent: "orchestrator",
+        agent: "coach",
       },
     ];
   }
@@ -196,7 +186,6 @@ export default async function ChatPage({
       />
       <HiFiChatPanel
         initialMessages={initial}
-        defaultAgent="auto"
         initialDraft={initialDraft}
         lang={lang}
       />

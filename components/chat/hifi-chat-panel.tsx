@@ -10,23 +10,22 @@ import { HiFiToolCard, type ToolEvent } from "./hifi-tool-card";
 import { type Lang, t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
-type ModelChoice = "auto" | "kimi" | "kimi-fast";
+type ModelChoice = "auto" | "kimi";
 
 const MODEL_LABEL: Record<ModelChoice, string> = {
   auto: "Auto",
   kimi: "Kimi K2.6",
-  "kimi-fast": "Kimi Fast",
 };
 
-const MODEL_ORDER: ModelChoice[] = ["auto", "kimi-fast", "kimi"];
+const MODEL_ORDER: ModelChoice[] = ["auto", "kimi"];
 
 const MODEL_STORAGE_KEY = "chat:model";
 
 // Optimistic in-flight tracking. When the user sends a message, we stash it
 // here BEFORE the fetch starts so the bubble survives page refresh / tab
-// close / mid-flight reload. The server-side conversations write happens a
-// few hundred ms later inside runPlanSynthesis, so a fast refresh would
-// otherwise see no record yet and lose the user's question.
+// close / mid-flight reload. The server-side conversations write happens
+// at the END of runAgent, so a fast refresh would otherwise see no record
+// yet and lose the user's question.
 const IN_FLIGHT_KEY = "chat:in-flight";
 const IN_FLIGHT_TTL_MS = 5 * 60 * 1000;
 
@@ -158,14 +157,12 @@ export interface HiFiChatMessageData {
 
 interface Props {
   initialMessages?: HiFiChatMessageData[];
-  defaultAgent?: AgentKey | "auto";
   initialDraft?: string;
   lang: Lang;
 }
 
 export function HiFiChatPanel({
   initialMessages = [],
-  defaultAgent = "auto",
   initialDraft = "",
   lang,
 }: Props) {
@@ -234,7 +231,7 @@ export function HiFiChatPanel({
         role: "assistant",
         content: "",
         pending: true,
-        agent: "orchestrator",
+        agent: "coach",
       },
     ]);
     // Best-effort: poll for the reply landing in conversations every 4s
@@ -330,7 +327,7 @@ export function HiFiChatPanel({
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ message: text, agent: defaultAgent, model }),
+          body: JSON.stringify({ message: text, model }),
           signal: ctrl.signal,
         });
         if (!res.ok) {
@@ -431,8 +428,9 @@ export function HiFiChatPanel({
           toast.error(errMsg);
         }
         // On error or explicit abort, drop the optimistic state. The server
-        // may have already persisted the user message via runPlanSynthesis;
-        // if so, it'll show on next refresh without the optimistic bubble.
+        // may have already persisted the user message via runAgent's final
+        // logTurn pass; if so, it'll show on next refresh without the
+        // optimistic bubble.
         clearInFlight();
         setMessages((m) => m.filter((x) => x.id !== placeholderId));
       } finally {
@@ -487,9 +485,9 @@ export function HiFiChatPanel({
         style={{ paddingBottom: "max(env(safe-area-inset-bottom), 8px)" }}
       >
         <div className="mx-auto flex w-full max-w-2xl items-end gap-2">
-          {/* Model selector. Forces a specific Kimi tier server-side;
-              "Auto" defers to chooseModel(). The fallback chain in
-              client.ts still kicks in if the chosen tier is unavailable. */}
+          {/* Model selector. Currently only k2.6 ships, so the picker is
+              effectively cosmetic — kept around so re-introducing tiers
+              later doesn't require a UI rebuild. */}
           <div ref={modelMenuRef} className="relative shrink-0">
             <button
               type="button"

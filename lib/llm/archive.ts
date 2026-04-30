@@ -67,7 +67,7 @@ export async function runConversationArchival(opts: {
         .slice(0, 12000); // cap input tokens so cost stays bounded
 
       const res = await callLLM({
-        tier: "kimi-fast",
+        tier: "kimi",
         systemInstruction: SYSTEM,
         contents: [{ role: "user", parts: [{ text: transcript }] }],
         agent: "reporter",

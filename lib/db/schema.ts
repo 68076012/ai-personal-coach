@@ -270,10 +270,15 @@ export interface PendingPlanDay {
 }
 
 export type UserId = "garfield" | "partner";
+// "coach" is the unified chat agent. trainer / meal_designer remain
+// because the nightly-plan cron files memory under those buckets so it
+// can read back its own past decisions. reporter is the morning-summary
+// bucket. Old DB rows with values outside this union (e.g. legacy
+// "orchestrator", "nutritionist") still read fine — the column is plain
+// `text` so existing data isn't bound by the TS type.
 export type AgentType =
-  | "orchestrator"
+  | "coach"
   | "trainer"
-  | "nutritionist"
   | "meal_designer"
   | "reporter"
   | "shared";

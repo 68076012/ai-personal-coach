@@ -3,6 +3,7 @@ import type { Content } from "./types";
 import {
   getAgentMemory,
   getConversationHistory,
+  getCoachConversationHistory,
   getDailyPlan,
   getDayMacros,
   getRecentMeals,
@@ -11,7 +12,7 @@ import {
 } from "@/lib/db/queries";
 import type { AgentType, UserId } from "@/lib/db/schema";
 import { callLLM } from "./client";
-import { chooseModel, type AgentName, type ModelTier, type Task } from "./models";
+import type { AgentName, ModelTier, Task } from "./models";
 import { commonHeader, type PromptContext } from "./prompts";
 import { sanitizeAssistantText } from "./sanitize";
 import {
@@ -23,12 +24,12 @@ import {
 
 export const TZ = "Asia/Bangkok";
 
-const AGENT_MEMORY_KEY: Record<
-  Exclude<AgentName, "orchestrator">,
-  AgentType
-> = {
+const AGENT_MEMORY_KEY: Record<AgentName, AgentType> = {
+  // coach reads/writes the shared memory bucket so tomorrow's nightly-plan
+  // cron (which still runs trainer/meal_designer specialists) sees the same
+  // constraints the user told the coach today.
+  coach: "shared",
   trainer: "trainer",
-  nutritionist: "nutritionist",
   meal_designer: "meal_designer",
   reporter: "shared",
 };
@@ -41,8 +42,7 @@ export async function buildPromptContext(userId: UserId, agent: AgentName): Prom
   const todayDate = formatInTimeZone(now, TZ, "yyyy-MM-dd");
   const dayOfWeek = formatInTimeZone(now, TZ, "EEEE");
 
-  const memoryAgent: AgentType =
-    agent === "orchestrator" ? "shared" : AGENT_MEMORY_KEY[agent];
+  const memoryAgent: AgentType = AGENT_MEMORY_KEY[agent];
 
   const dayStart = new Date(`${todayDate}T00:00:00+07:00`);
   const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
@@ -73,16 +73,20 @@ function toContent(role: "user" | "model", text: string): Content {
 
 export interface RunAgentInput {
   userId: UserId;
-  agent: Exclude<AgentName, "orchestrator">;
+  agent: AgentName;
   userMessage: string;
   systemSuffix: string; // agent-specific prompt
   task?: Task;
   estimatedComplexity?: "low" | "medium" | "high";
   persistConversation?: boolean;
-  // Force a specific model tier instead of `chooseModel(...)`. The fallback
-  // chain in `client.ts` still applies if the chosen tier is unavailable —
-  // this just sets the starting point.
+  // Force a specific model tier instead of the default. The fallback chain
+  // in `client.ts` still applies if the chosen tier is unavailable — this
+  // just sets the starting point.
   overrideTier?: ModelTier;
+  // Optional progress callback. Emitted before each LLM call inside the
+  // tool-call loop so the chat route can stream phase events to the user
+  // ("กำลังคิด…", "เรียก log_meal…") instead of leaving them on heartbeats.
+  onPhase?: (label: string) => void;
 }
 
 export interface RunAgentResult {
@@ -97,14 +101,21 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
   const tools = declarationsForAgent(input.agent);
 
   const agentType: AgentType =
-    input.agent === "meal_designer"
-      ? "meal_designer"
-      : (input.agent as AgentType);
+    input.agent === "coach"
+      ? "coach"
+      : input.agent === "meal_designer"
+        ? "meal_designer"
+        : (input.agent as AgentType);
 
-  // Recent conversation history (this agent only) for short-term coherence
-  const history = input.persistConversation
-    ? await getConversationHistory(input.userId, agentType, 10)
-    : [];
+  // Recent conversation history. The coach pulls the user's last 10 turns
+  // across every agent_type — old per-specialist conversations stay in
+  // context after the multi-agent → single-coach migration. Other agents
+  // (cron-driven) keep their per-agent history for now.
+  const history = !input.persistConversation
+    ? []
+    : input.agent === "coach"
+      ? await getCoachConversationHistory(input.userId, 10)
+      : await getConversationHistory(input.userId, agentType, 10);
 
   const contents: Content[] = [];
   for (const turn of history) {
@@ -116,14 +127,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
   }
   contents.push(toContent("user", input.userMessage));
 
-  const tier =
-    input.overrideTier ??
-    chooseModel({
-      agent: input.agent,
-      task: input.task ?? "chat",
-      hasTools: tools.length > 0,
-      estimatedComplexity: input.estimatedComplexity,
-    });
+  const tier: ModelTier = input.overrideTier ?? "kimi";
 
   const toolCtx: ToolContext = {
     userId: input.userId,
@@ -136,6 +140,9 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
   let safetyCounter = 0;
 
   while (safetyCounter++ < 6) {
+    input.onPhase?.(
+      safetyCounter === 1 ? "กำลังคิด…" : "ตามต่อหลังเรียก tool…",
+    );
     const res = await callLLM({
       tier,
       systemInstruction,
@@ -152,6 +159,10 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
       reply = text.trim();
       break;
     }
+
+    input.onPhase?.(
+      `เรียก ${calls.map((c) => c.name ?? "?").join(", ")}…`,
+    );
 
     // Execute each function call sequentially and feed results back
     const modelParts: { text?: string; functionCall?: typeof calls[number] }[] = [];
@@ -193,16 +204,17 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
 
   if (input.persistConversation) {
     await logTurn(input.userId, agentType, "user", input.userMessage);
-    if (toolEvents.length) {
-      await logTurn(
-        input.userId,
-        agentType,
-        "tool",
-        `${toolEvents.length} tool call(s)`,
-        toolEvents,
-      );
-    }
-    await logTurn(input.userId, agentType, "assistant", reply);
+    // Attach tool events to the assistant row directly. The chat page
+    // filters "tool" rows out of the rendered history, so anything
+    // logged as its own "tool" row would lose its card on reload.
+    // Single-row write also halves the conversation count per turn.
+    await logTurn(
+      input.userId,
+      agentType,
+      "assistant",
+      reply,
+      toolEvents.length ? toolEvents : undefined,
+    );
   }
 
   return { reply, toolEvents, agent: input.agent };
